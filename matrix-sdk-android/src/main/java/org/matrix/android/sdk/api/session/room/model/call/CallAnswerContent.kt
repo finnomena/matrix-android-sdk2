@@ -18,6 +18,7 @@ package org.matrix.android.sdk.api.session.room.model.call
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import org.matrix.android.sdk.api.session.room.model.relation.RelationDefaultContent
 
 /**
  * This event is sent by the callee when they wish to answer the call.
@@ -43,7 +44,8 @@ data class CallAnswerContent(
         /**
          * Capability advertisement.
          */
-        @Json(name = "capabilities") val capabilities: CallCapabilities? = null
+        @Json(name = "capabilities") val capabilities: CallCapabilities? = null,
+        @Json(name = "m.relates_to") val relatesTo: RelationDefaultContent? = null,
 ) : CallSignalingContent {
 
     @JsonClass(generateAdapter = true)
