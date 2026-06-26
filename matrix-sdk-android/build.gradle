@@ -255,3 +255,7 @@ dependencies {
 
     androidTestUtil libs.androidx.orchestrator
 }
+
+signing {
+    required { false }
+}
