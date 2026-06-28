@@ -41,7 +41,7 @@ internal class MxCallFactory @Inject constructor(
         private val clock: Clock,
 ) {
 
-    fun createIncomingCall(roomId: String, opponentUserId: String, content: CallInviteContent): MxCall? {
+    fun createIncomingCall(roomId: String, opponentUserId: String, content: CallInviteContent, inviteEventId: String?): MxCall? {
         content.callId ?: return null
         return MxCallImpl(
                 callId = content.callId,
@@ -55,6 +55,7 @@ internal class MxCallFactory @Inject constructor(
                 matrixConfiguration = matrixConfiguration,
                 getProfileInfoTask = getProfileInfoTask,
                 clock = clock,
+                inviteEventId = inviteEventId,
         ).apply {
             updateOpponentData(opponentUserId, content, content.capabilities)
         }

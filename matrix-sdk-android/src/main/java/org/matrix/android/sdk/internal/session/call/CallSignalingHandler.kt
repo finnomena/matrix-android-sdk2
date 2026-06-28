@@ -204,7 +204,8 @@ internal class CallSignalingHandler @Inject constructor(
         val incomingCall = mxCallFactory.createIncomingCall(
                 roomId = event.roomId,
                 opponentUserId = event.senderId,
-                content = content
+                content = content,
+                inviteEventId = event.eventId,
         ) ?: return
         invitedCallIds.add(content.callId)
         activeCallHandler.addCall(incomingCall)

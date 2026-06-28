@@ -18,6 +18,7 @@ package org.matrix.android.sdk.api.session.room.model.call
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import org.matrix.android.sdk.api.session.room.model.relation.RelationDefaultContent
 
 /**
  * Sent by either party to signal their termination of the call. This can be sent either once
@@ -43,5 +44,6 @@ data class CallHangupContent(
          * or `invite_timeout` for when the other party did not answer in time.
          * One of: ["ice_failed", "invite_timeout"]
          */
-        @Json(name = "reason") val reason: EndCallReason? = null
+        @Json(name = "reason") val reason: EndCallReason? = null,
+        @Json(name = "m.relates_to") val relatesTo: RelationDefaultContent? = null,
 ) : CallSignalingContent
