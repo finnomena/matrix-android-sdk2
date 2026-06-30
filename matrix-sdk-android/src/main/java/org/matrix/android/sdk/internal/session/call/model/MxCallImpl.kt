@@ -274,6 +274,9 @@ internal class MxCallImpl(
 
     private fun buildRelatesTo(): RelationDefaultContent? {
         val eventId = capturedInviteEventId ?: return null
+        // Local echo IDs don't exist on the homeserver; sending one as m.relates_to causes
+        // the server to reject the event entirely, so the callee never receives it.
+        if (LocalEcho.isLocalEchoId(eventId)) return null
         return RelationDefaultContent(type = MxCall.VOIP_RELATION_TYPE, eventId = eventId)
     }
 

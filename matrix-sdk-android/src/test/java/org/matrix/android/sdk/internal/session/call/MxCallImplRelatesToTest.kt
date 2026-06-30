@@ -30,6 +30,7 @@ import org.junit.Test
 import org.matrix.android.sdk.api.MatrixConfiguration
 import org.matrix.android.sdk.api.session.call.MxCall
 import org.matrix.android.sdk.api.session.events.model.Event
+import org.matrix.android.sdk.api.session.events.model.LocalEcho
 import org.matrix.android.sdk.internal.session.call.model.MxCallImpl
 import org.matrix.android.sdk.internal.session.profile.GetProfileInfoTask
 import org.matrix.android.sdk.internal.session.room.send.LocalEchoEventFactory
@@ -154,8 +155,9 @@ internal class MxCallImplRelatesToTest {
     }
 
     @Test
-    fun `given outgoing call after offerSdp, when hangUp is called, then posted event includes m_relates_to from captured invite`() {
-        // Reset slot so we can capture the hangup event (offerSdp posts first)
+    fun `given outgoing call after offerSdp, when hangUp is called, then posted event has no m_relates_to because invite id is local echo`() {
+        // Local echo IDs must not be sent to the homeserver in m.relates_to — the server
+        // would reject the event, preventing the callee from ever receiving the hangup.
         val events = mutableListOf<Event>()
         every { eventSenderProcessor.postEvent(any()) } answers {
             events.add(firstArg())
@@ -181,15 +183,13 @@ internal class MxCallImplRelatesToTest {
         call.offerSdp(sdpString = "sdp-offer")
         val capturedInviteId = call.inviteEventId
         capturedInviteId.shouldNotBeNull()
+        assert(LocalEcho.isLocalEchoId(capturedInviteId)) { "expected local echo id, got $capturedInviteId" }
 
         call.hangUp()
 
         val hangupEvent = events[1]
         val content = hangupEvent.content
         content.shouldNotBeNull()
-        val relatesToMap = content["m.relates_to"] as? Map<*, *>
-        relatesToMap.shouldNotBeNull()
-        relatesToMap["rel_type"] shouldBeEqualTo MxCall.VOIP_RELATION_TYPE
-        relatesToMap["event_id"] shouldBeEqualTo capturedInviteId
+        content["m.relates_to"].shouldBeNull()
     }
 }
