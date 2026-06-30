@@ -32,14 +32,21 @@ internal class QueuedTaskFactory @Inject constructor(
         private val cancelSendTracker: CancelSendTracker
 ) {
 
-    fun createSendTask(event: Event, encrypt: Boolean): QueuedTask {
+    fun createSendTask(
+            event: Event,
+            encrypt: Boolean,
+            onEventSent: ((String) -> Unit)? = null,
+            contentModifier: (() -> Map<String, Any>?)? = null,
+    ): QueuedTask {
         return SendEventQueuedTask(
                 event = event,
                 encrypt = encrypt,
                 cryptoService = cryptoService,
                 localEchoRepository = localEchoRepository,
                 sendEventTask = sendEventTask,
-                cancelSendTracker = cancelSendTracker
+                cancelSendTracker = cancelSendTracker,
+                onEventSent = onEventSent,
+                contentModifier = contentModifier,
         )
     }
 

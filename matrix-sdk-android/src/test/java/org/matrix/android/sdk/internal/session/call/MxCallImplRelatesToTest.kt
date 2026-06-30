@@ -26,6 +26,7 @@ import org.amshove.kluent.shouldBeEqualTo
 import org.amshove.kluent.shouldBeNull
 import org.amshove.kluent.shouldNotBeNull
 import org.junit.After
+import org.junit.Before
 import org.junit.Test
 import org.matrix.android.sdk.api.MatrixConfiguration
 import org.matrix.android.sdk.api.session.call.MxCall
@@ -41,23 +42,24 @@ private const val A_ROOM_ID = "!room:matrix.org"
 private const val A_USER_ID = "@user:matrix.org"
 private const val A_PARTY_ID = "party-id-abc"
 private const val AN_INVITE_EVENT_ID = "\$inviteEventId123"
+private const val A_REAL_INVITE_EVENT_ID = "\$realServerEventId456"
 
 internal class MxCallImplRelatesToTest {
 
-    private val localEchoEventFactory = mockk<LocalEchoEventFactory> {
-        every { createLocalEcho(any()) } just runs
-    }
-    private val eventSenderProcessor = mockk<EventSenderProcessor> {
-        every { postEvent(any()) } returns mockk()
-    }
-    private val matrixConfiguration = mockk<MatrixConfiguration> {
-        every { supportsCallTransfer } returns false
-    }
-    private val clock = mockk<Clock> {
-        every { epochMillis() } returns 1000L
-    }
+    private val localEchoEventFactory = mockk<LocalEchoEventFactory>()
+    private val eventSenderProcessor = mockk<EventSenderProcessor>()
+    private val matrixConfiguration = mockk<MatrixConfiguration>()
+    private val clock = mockk<Clock>()
 
-    private val postedEventSlot = slot<Event>()
+    @Before
+    fun setUp() {
+        every { localEchoEventFactory.createLocalEcho(any()) } just runs
+        every { matrixConfiguration.supportsCallTransfer } returns false
+        every { clock.epochMillis() } returns 1000L
+        // Default stubs — individual tests override these with capturing variants
+        every { eventSenderProcessor.postEvent(any<Event>()) } returns mockk()
+        every { eventSenderProcessor.postEvent(any(), any(), any()) } returns mockk()
+    }
 
     @After
     fun tearDown() {
@@ -68,7 +70,6 @@ internal class MxCallImplRelatesToTest {
             isOutgoing: Boolean = false,
             inviteEventId: String? = AN_INVITE_EVENT_ID
     ): MxCallImpl {
-        every { eventSenderProcessor.postEvent(capture(postedEventSlot)) } returns mockk()
         return MxCallImpl(
                 callId = A_CALL_ID,
                 isOutgoing = isOutgoing,
@@ -85,16 +86,18 @@ internal class MxCallImplRelatesToTest {
         )
     }
 
+    // accept() and reject() build m.relates_to eagerly into the event content
+
     @Test
     fun `given incoming call with inviteEventId, when accept is called, then posted event content includes m_relates_to`() {
+        val eventSlot = slot<Event>()
+        every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
+
         val call = createCallImpl(isOutgoing = false)
         call.opponentUserId = "@opponent:matrix.org"
-
         call.accept(sdpString = "sdp-answer")
 
-        val content = postedEventSlot.captured.content
-        content.shouldNotBeNull()
-        val relatesToMap = content["m.relates_to"] as? Map<*, *>
+        val relatesToMap = eventSlot.captured.content?.get("m.relates_to") as? Map<*, *>
         relatesToMap.shouldNotBeNull()
         relatesToMap["rel_type"] shouldBeEqualTo MxCall.VOIP_RELATION_TYPE
         relatesToMap["event_id"] shouldBeEqualTo AN_INVITE_EVENT_ID
@@ -102,30 +105,15 @@ internal class MxCallImplRelatesToTest {
 
     @Test
     fun `given incoming call with inviteEventId, when reject is called, then posted event content includes m_relates_to`() {
+        val eventSlot = slot<Event>()
+        every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
+
         val call = createCallImpl(isOutgoing = false)
         call.opponentUserId = "@opponent:matrix.org"
         call.opponentVersion = 1
-
         call.reject()
 
-        val content = postedEventSlot.captured.content
-        content.shouldNotBeNull()
-        val relatesToMap = content["m.relates_to"] as? Map<*, *>
-        relatesToMap.shouldNotBeNull()
-        relatesToMap["rel_type"] shouldBeEqualTo MxCall.VOIP_RELATION_TYPE
-        relatesToMap["event_id"] shouldBeEqualTo AN_INVITE_EVENT_ID
-    }
-
-    @Test
-    fun `given call with inviteEventId, when hangUp is called, then posted event content includes m_relates_to`() {
-        val call = createCallImpl(isOutgoing = false)
-        call.opponentUserId = "@opponent:matrix.org"
-
-        call.hangUp()
-
-        val content = postedEventSlot.captured.content
-        content.shouldNotBeNull()
-        val relatesToMap = content["m.relates_to"] as? Map<*, *>
+        val relatesToMap = eventSlot.captured.content?.get("m.relates_to") as? Map<*, *>
         relatesToMap.shouldNotBeNull()
         relatesToMap["rel_type"] shouldBeEqualTo MxCall.VOIP_RELATION_TYPE
         relatesToMap["event_id"] shouldBeEqualTo AN_INVITE_EVENT_ID
@@ -133,18 +121,42 @@ internal class MxCallImplRelatesToTest {
 
     @Test
     fun `given call without inviteEventId, when accept is called, then posted event content has no m_relates_to`() {
+        val eventSlot = slot<Event>()
+        every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
+
         val call = createCallImpl(isOutgoing = false, inviteEventId = null)
         call.opponentUserId = "@opponent:matrix.org"
-
         call.accept(sdpString = "sdp-answer")
 
-        val content = postedEventSlot.captured.content
-        content.shouldNotBeNull()
-        content["m.relates_to"].shouldBeNull()
+        eventSlot.captured.content?.get("m.relates_to").shouldBeNull()
     }
 
+    // hangUp() adds m.relates_to lazily via contentModifier at actual send time
+
     @Test
-    fun `given outgoing call, when offerSdp is called, inviteEventId is captured from local echo`() {
+    fun `given incoming call with inviteEventId, when hangUp is called, then content modifier provides m_relates_to`() {
+        var capturedModifier: (() -> Map<String, Any>?)? = null
+        every { eventSenderProcessor.postEvent(any(), any(), any()) } answers {
+            capturedModifier = thirdArg()
+            mockk()
+        }
+
+        val call = createCallImpl(isOutgoing = false)
+        call.opponentUserId = "@opponent:matrix.org"
+        call.hangUp()
+
+        val patch = capturedModifier?.invoke()
+        patch.shouldNotBeNull()
+        val relatesToMap = patch["m.relates_to"] as? Map<*, *>
+        relatesToMap.shouldNotBeNull()
+        relatesToMap["rel_type"] shouldBeEqualTo MxCall.VOIP_RELATION_TYPE
+        relatesToMap["event_id"] shouldBeEqualTo AN_INVITE_EVENT_ID
+    }
+
+    // offerSdp() registers onEventSent callback; once the server confirms, hangUp's contentModifier uses the real event ID
+
+    @Test
+    fun `given outgoing call, when offerSdp is called, then invite eventId is captured`() {
         val call = createCallImpl(isOutgoing = true, inviteEventId = null)
         call.opponentUserId = "@opponent:matrix.org"
 
@@ -154,42 +166,35 @@ internal class MxCallImplRelatesToTest {
     }
 
     @Test
-    fun `given outgoing call after offerSdp, when hangUp is called, then posted event includes m_relates_to from captured invite`() {
-        // Reset slot so we can capture the hangup event (offerSdp posts first)
-        val events = mutableListOf<Event>()
-        every { eventSenderProcessor.postEvent(any()) } answers {
-            events.add(firstArg())
+    fun `given outgoing call, when server confirms invite then caller hangsUp, content modifier provides m_relates_to with real server event id`() {
+        var capturedOnEventSent: ((String) -> Unit)? = null
+        var capturedModifier: (() -> Map<String, Any>?)? = null
+
+        every { eventSenderProcessor.postEvent(any(), any(), any()) } answers {
+            val onSent: ((String) -> Unit)? = secondArg()
+            val modifier: (() -> Map<String, Any>?)? = thirdArg()
+            if (onSent != null) capturedOnEventSent = onSent
+            if (modifier != null) capturedModifier = modifier
             mockk()
         }
 
-        val call = MxCallImpl(
-                callId = A_CALL_ID,
-                isOutgoing = true,
-                roomId = A_ROOM_ID,
-                userId = A_USER_ID,
-                isVideoCall = false,
-                ourPartyId = A_PARTY_ID,
-                localEchoEventFactory = localEchoEventFactory,
-                eventSenderProcessor = eventSenderProcessor,
-                matrixConfiguration = matrixConfiguration,
-                getProfileInfoTask = mockk(),
-                clock = clock,
-                inviteEventId = null,
-        )
+        val call = createCallImpl(isOutgoing = true, inviteEventId = null)
         call.opponentUserId = "@opponent:matrix.org"
 
         call.offerSdp(sdpString = "sdp-offer")
-        val capturedInviteId = call.inviteEventId
-        capturedInviteId.shouldNotBeNull()
+
+        // Simulate the server confirming the invite with a real event ID
+        capturedOnEventSent.shouldNotBeNull()
+        capturedOnEventSent!!.invoke(A_REAL_INVITE_EVENT_ID)
 
         call.hangUp()
 
-        val hangupEvent = events[1]
-        val content = hangupEvent.content
-        content.shouldNotBeNull()
-        val relatesToMap = content["m.relates_to"] as? Map<*, *>
+        // contentModifier runs at actual send time — by then capturedInviteEventId is the real server ID
+        val patch = capturedModifier?.invoke()
+        patch.shouldNotBeNull()
+        val relatesToMap = patch["m.relates_to"] as? Map<*, *>
         relatesToMap.shouldNotBeNull()
         relatesToMap["rel_type"] shouldBeEqualTo MxCall.VOIP_RELATION_TYPE
-        relatesToMap["event_id"] shouldBeEqualTo capturedInviteId
+        relatesToMap["event_id"] shouldBeEqualTo A_REAL_INVITE_EVENT_ID
     }
 }

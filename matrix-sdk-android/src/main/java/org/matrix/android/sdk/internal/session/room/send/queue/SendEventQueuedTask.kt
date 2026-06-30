@@ -30,11 +30,17 @@ internal class SendEventQueuedTask(
         val sendEventTask: SendEventTask,
         val cryptoService: CryptoService,
         val localEchoRepository: LocalEchoRepository,
-        val cancelSendTracker: CancelSendTracker
+        val cancelSendTracker: CancelSendTracker,
+        val onEventSent: ((realEventId: String) -> Unit)? = null,
+        val contentModifier: (() -> Map<String, Any>?)? = null,
 ) : QueuedTask(queueIdentifier = event.roomId!!, taskIdentifier = event.eventId!!) {
 
     override suspend fun doExecute() {
-        sendEventTask.execute(SendEventTask.Params(event, encrypt))
+        val eventToSend = contentModifier?.invoke()?.let { patch ->
+            event.copy(content = event.content.orEmpty() + patch)
+        } ?: event
+        val realEventId = sendEventTask.execute(SendEventTask.Params(eventToSend, encrypt))
+        onEventSent?.invoke(realEventId)
     }
 
     override fun onTaskFailed() {
