@@ -26,6 +26,12 @@ internal interface EventSenderProcessor : SessionLifecycleObserver {
 
     fun postEvent(event: Event, encrypt: Boolean): Cancelable
 
+    fun postEvent(
+            event: Event,
+            onEventSent: ((realEventId: String) -> Unit)? = null,
+            contentModifier: (() -> Map<String, Any>?)? = null,
+    ): Cancelable
+
     fun postRedaction(redactionLocalEcho: Event, reason: String?, withRelTypes: List<String>? = null): Cancelable
 
     fun postRedaction(redactionLocalEchoId: String, eventToRedactId: String, roomId: String, reason: String?, withRelTypes: List<String>? = null): Cancelable

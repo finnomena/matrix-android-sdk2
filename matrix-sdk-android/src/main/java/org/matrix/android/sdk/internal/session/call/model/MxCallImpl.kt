@@ -68,7 +68,7 @@ internal class MxCallImpl(
         inviteEventId: String? = null,
 ) : MxCall {
 
-    private var capturedInviteEventId: String? = inviteEventId
+    @Volatile private var capturedInviteEventId: String? = inviteEventId
     override val inviteEventId: String? get() = capturedInviteEventId
 
     override var opponentPartyId: Optional<String>? = null
@@ -131,7 +131,9 @@ internal class MxCallImpl(
                 capabilities = buildCapabilities()
         ).let { createEventAndLocalEcho(type = EventType.CALL_INVITE, roomId = roomId, content = it.toContent()) }
         capturedInviteEventId = event.eventId
-        eventSenderProcessor.postEvent(event)
+        eventSenderProcessor.postEvent(event, onEventSent = { realEventId ->
+            capturedInviteEventId = realEventId
+        })
     }
 
     override fun sendLocalCallCandidates(candidates: List<CallCandidate>) {
@@ -175,10 +177,13 @@ internal class MxCallImpl(
                 partyId = ourPartyId,
                 reason = reason,
                 version = MxCall.VOIP_PROTO_VERSION.toString(),
-                relatesTo = buildRelatesTo(),
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_HANGUP, roomId = roomId, content = it.toContent()) }
-                .also { eventSenderProcessor.postEvent(it) }
+                .also { event ->
+                    eventSenderProcessor.postEvent(event, contentModifier = {
+                        buildRelatesTo()?.let { mapOf<String, Any>("m.relates_to" to it.toContent()) }
+                    })
+                }
         state = CallState.Ended(reason)
     }
 
@@ -274,9 +279,6 @@ internal class MxCallImpl(
 
     private fun buildRelatesTo(): RelationDefaultContent? {
         val eventId = capturedInviteEventId ?: return null
-        // Local echo IDs don't exist on the homeserver; sending one as m.relates_to causes
-        // the server to reject the event entirely, so the callee never receives it.
-        if (LocalEcho.isLocalEchoId(eventId)) return null
         return RelationDefaultContent(type = MxCall.VOIP_RELATION_TYPE, eventId = eventId)
     }
 
