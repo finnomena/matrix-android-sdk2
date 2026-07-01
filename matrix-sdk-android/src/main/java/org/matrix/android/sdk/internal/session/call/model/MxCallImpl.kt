@@ -41,6 +41,7 @@ import org.matrix.android.sdk.api.session.room.model.call.CallSelectAnswerConten
 import org.matrix.android.sdk.api.session.room.model.call.CallSignalingContent
 import org.matrix.android.sdk.api.session.room.model.call.EndCallReason
 import org.matrix.android.sdk.api.session.room.model.call.SdpType
+import org.matrix.android.sdk.api.session.room.model.relation.RelationDefaultContent
 import org.matrix.android.sdk.api.util.Optional
 import org.matrix.android.sdk.internal.session.call.DefaultCallSignalingService
 import org.matrix.android.sdk.internal.session.profile.GetProfileInfoTask
@@ -64,7 +65,11 @@ internal class MxCallImpl(
         private val matrixConfiguration: MatrixConfiguration,
         private val getProfileInfoTask: GetProfileInfoTask,
         private val clock: Clock,
+        inviteEventId: String? = null,
 ) : MxCall {
+
+    @Volatile private var capturedInviteEventId: String? = inviteEventId
+    override val inviteEventId: String? get() = capturedInviteEventId
 
     override var opponentPartyId: Optional<String>? = null
     override var opponentVersion: Int = MxCall.VOIP_PROTO_VERSION
@@ -117,16 +122,18 @@ internal class MxCallImpl(
         if (!isOutgoing) return
         Timber.tag(loggerTag.value).v("offerSdp $callId")
         state = CallState.Dialing
-        CallInviteContent(
+        val event = CallInviteContent(
                 callId = callId,
                 partyId = ourPartyId,
                 lifetime = DefaultCallSignalingService.CALL_TIMEOUT_MS,
                 offer = CallInviteContent.Offer(sdp = sdpString),
                 version = MxCall.VOIP_PROTO_VERSION.toString(),
                 capabilities = buildCapabilities()
-        )
-                .let { createEventAndLocalEcho(type = EventType.CALL_INVITE, roomId = roomId, content = it.toContent()) }
-                .also { eventSenderProcessor.postEvent(it) }
+        ).let { createEventAndLocalEcho(type = EventType.CALL_INVITE, roomId = roomId, content = it.toContent()) }
+        capturedInviteEventId = event.eventId
+        eventSenderProcessor.postEvent(event, onEventSent = { realEventId ->
+            capturedInviteEventId = realEventId
+        })
     }
 
     override fun sendLocalCallCandidates(candidates: List<CallCandidate>) {
@@ -155,7 +162,8 @@ internal class MxCallImpl(
         CallRejectContent(
                 callId = callId,
                 partyId = ourPartyId,
-                version = MxCall.VOIP_PROTO_VERSION.toString()
+                version = MxCall.VOIP_PROTO_VERSION.toString(),
+                relatesTo = buildRelatesTo(),
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_REJECT, roomId = roomId, content = it.toContent()) }
                 .also { eventSenderProcessor.postEvent(it) }
@@ -168,10 +176,14 @@ internal class MxCallImpl(
                 callId = callId,
                 partyId = ourPartyId,
                 reason = reason,
-                version = MxCall.VOIP_PROTO_VERSION.toString()
+                version = MxCall.VOIP_PROTO_VERSION.toString(),
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_HANGUP, roomId = roomId, content = it.toContent()) }
-                .also { eventSenderProcessor.postEvent(it) }
+                .also { event ->
+                    eventSenderProcessor.postEvent(event, contentModifier = {
+                        buildRelatesTo()?.let { mapOf<String, Any>("m.relates_to" to it.toContent()) }
+                    })
+                }
         state = CallState.Ended(reason)
     }
 
@@ -184,7 +196,8 @@ internal class MxCallImpl(
                 partyId = ourPartyId,
                 answer = CallAnswerContent.Answer(sdp = sdpString),
                 version = MxCall.VOIP_PROTO_VERSION.toString(),
-                capabilities = buildCapabilities()
+                capabilities = buildCapabilities(),
+                relatesTo = buildRelatesTo(),
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_ANSWER, roomId = roomId, content = it.toContent()) }
                 .also { eventSenderProcessor.postEvent(it) }
@@ -262,6 +275,11 @@ internal class MxCallImpl(
                 unsignedData = UnsignedData(age = null, transactionId = localId)
         )
                 .also { localEchoEventFactory.createLocalEcho(it) }
+    }
+
+    private fun buildRelatesTo(): RelationDefaultContent? {
+        val eventId = capturedInviteEventId ?: return null
+        return RelationDefaultContent(type = MxCall.VOIP_RELATION_TYPE, eventId = eventId)
     }
 
     private fun buildCapabilities(): CallCapabilities? {

@@ -32,6 +32,7 @@ interface MxCallDetail {
     val opponentVersion: Int
     val opponentUserId: String
     val capabilities: CallCapabilities?
+    val inviteEventId: String?
 }
 
 /**
@@ -41,6 +42,7 @@ interface MxCall : MxCallDetail {
 
     companion object {
         const val VOIP_PROTO_VERSION = 1
+        const val VOIP_RELATION_TYPE = "com.finnomena.oracle.voip"
     }
 
     var state: CallState
