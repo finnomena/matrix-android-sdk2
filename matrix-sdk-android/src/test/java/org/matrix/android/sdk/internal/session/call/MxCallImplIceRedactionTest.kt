@@ -22,6 +22,7 @@ import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.slot
 import io.mockk.unmockkAll
+import io.mockk.verify
 import org.amshove.kluent.shouldBeEqualTo
 import org.junit.After
 import org.junit.Before
@@ -41,7 +42,7 @@ private const val A_ROOM_ID = "!room:matrix.org"
 private const val A_USER_ID = "@user:matrix.org"
 private const val A_PARTY_ID = "party-id-abc"
 private const val A_REAL_SDP_WITH_IP = "v=0\r\nc=IN IP4 192.168.1.5\r\na=candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0"
-private const val A_SANITIZED_SDP = "v=0\r\nc=IN IP4 0.0.0.0\r\na=candidate:1 1 udp 2122260223 0.0.0.0 54321 typ host generation 0"
+private const val A_SANITIZED_SDP = "v=0\r\nc=IN IP4 0.0.0.0"
 
 internal class MxCallImplIceRedactionTest {
 
@@ -119,10 +120,7 @@ internal class MxCallImplIceRedactionTest {
     }
 
     @Test
-    fun `given call, when sendLocalCallCandidates is called with a real IP, then posted event content has the sanitized candidate`() {
-        val eventSlot = slot<Event>()
-        every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
-
+    fun `given call, when sendLocalCallCandidates is called with only a host candidate, then no event is posted`() {
         val call = createCallImpl(isOutgoing = true)
         call.sendLocalCallCandidates(
                 listOf(
@@ -134,8 +132,54 @@ internal class MxCallImplIceRedactionTest {
                 )
         )
 
+        verify(exactly = 0) { eventSenderProcessor.postEvent(any<Event>()) }
+    }
+
+    @Test
+    fun `given call, when sendLocalCallCandidates is called with a relay candidate, then posted event keeps the primary address intact`() {
+        val eventSlot = slot<Event>()
+        every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
+
+        val call = createCallImpl(isOutgoing = true)
+        call.sendLocalCallCandidates(
+                listOf(
+                        CallCandidate(
+                                sdpMid = "0",
+                                sdpMLineIndex = 0,
+                                candidate = "candidate:1 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
+                        )
+                )
+        )
+
         val candidates = eventSlot.captured.content?.get("candidates") as? List<*>
         val firstCandidate = candidates?.firstOrNull() as? Map<*, *>
-        firstCandidate?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 2122260223 0.0.0.0 54321 typ host generation 0"
+        firstCandidate?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 54321 generation 0"
+    }
+
+    @Test
+    fun `given call, when sendLocalCallCandidates is called with a mix of host and relay candidates, then only the relay candidate is posted`() {
+        val eventSlot = slot<Event>()
+        every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
+
+        val call = createCallImpl(isOutgoing = true)
+        call.sendLocalCallCandidates(
+                listOf(
+                        CallCandidate(
+                                sdpMid = "0",
+                                sdpMLineIndex = 0,
+                                candidate = "candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0"
+                        ),
+                        CallCandidate(
+                                sdpMid = "0",
+                                sdpMLineIndex = 0,
+                                candidate = "candidate:2 1 udp 41886234 34.90.12.7 3478 typ relay generation 0"
+                        )
+                )
+        )
+
+        val candidates = eventSlot.captured.content?.get("candidates") as? List<*>
+        candidates?.size shouldBeEqualTo 1
+        val onlyCandidate = candidates?.firstOrNull() as? Map<*, *>
+        onlyCandidate?.get("candidate") shouldBeEqualTo "candidate:2 1 udp 41886234 34.90.12.7 3478 typ relay generation 0"
     }
 }

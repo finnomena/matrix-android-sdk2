@@ -24,80 +24,80 @@ import org.matrix.android.sdk.api.session.room.model.call.CallCandidate
 internal class IceCandidateSanitizerTest {
 
     @Test
-    fun `given host candidate, when sanitizeCandidate, then address is zeroed`() {
+    fun `given host candidate, when sanitizeCandidate, then it is dropped`() {
         val candidate = CallCandidate(
                 candidate = "candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0 ufrag abcd network-id 1"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate shouldBeEqualTo "candidate:1 1 udp 2122260223 0.0.0.0 54321 typ host generation 0 ufrag abcd network-id 1"
+        result.shouldBeNull()
     }
 
     @Test
-    fun `given srflx candidate with raddr, when sanitizeCandidate, then address and raddr are zeroed`() {
+    fun `given srflx candidate, when sanitizeCandidate, then it is dropped`() {
         val candidate = CallCandidate(
                 candidate = "candidate:842163049 1 udp 1677729535 203.0.113.7 54321 typ srflx raddr 192.168.1.5 rport 54321 generation 0"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate shouldBeEqualTo "candidate:842163049 1 udp 1677729535 0.0.0.0 54321 typ srflx raddr 0.0.0.0 rport 54321 generation 0"
+        result.shouldBeNull()
     }
 
     @Test
-    fun `given relay candidate, when sanitizeCandidate, then primary address is kept but raddr is zeroed`() {
+    fun `given relay candidate, when sanitizeCandidate, then it is kept with primary address intact and raddr zeroed`() {
         val candidate = CallCandidate(
                 candidate = "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate shouldBeEqualTo "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 54321 generation 0"
+        result?.candidate shouldBeEqualTo "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 54321 generation 0"
     }
 
     @Test
-    fun `given ipv6 host candidate, when sanitizeCandidate, then address is replaced with double colon`() {
+    fun `given relay candidate with no raddr, when sanitizeCandidate, then it is kept unchanged`() {
         val candidate = CallCandidate(
-                candidate = "candidate:1 1 udp 2122260223 2001:db8::1 54321 typ host generation 0"
+                candidate = "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay generation 0"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate shouldBeEqualTo "candidate:1 1 udp 2122260223 :: 54321 typ host generation 0"
+        result?.candidate shouldBeEqualTo "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay generation 0"
     }
 
     @Test
-    fun `given candidate with no raddr, when sanitizeCandidate, then only primary address is touched`() {
+    fun `given relay candidate with ipv6 raddr, when sanitizeCandidate, then raddr is replaced with double colon`() {
         val candidate = CallCandidate(
-                candidate = "candidate:1 1 udp 2122260223 10.0.0.4 54321 typ host generation 0"
+                candidate = "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr 2001:db8::1 rport 54321 generation 0"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate shouldBeEqualTo "candidate:1 1 udp 2122260223 0.0.0.0 54321 typ host generation 0"
+        result?.candidate shouldBeEqualTo "candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr :: rport 54321 generation 0"
     }
 
     @Test
-    fun `given malformed candidate string, when sanitizeCandidate, then it is redacted to empty`() {
+    fun `given malformed candidate string, when sanitizeCandidate, then it is dropped`() {
         val candidate = CallCandidate(candidate = "not a real candidate line")
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate shouldBeEqualTo ""
+        result.shouldBeNull()
     }
 
     @Test
-    fun `given null candidate string, when sanitizeCandidate, then it stays null`() {
+    fun `given null candidate string, when sanitizeCandidate, then it is dropped`() {
         val candidate = CallCandidate(candidate = null)
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result.candidate.shouldBeNull()
+        result.shouldBeNull()
     }
 
     @Test
-    fun `given sdp with connection line and candidate line, when sanitizeSdp, then both are redacted and other lines untouched`() {
+    fun `given sdp with connection line and a host candidate line, when sanitizeSdp, then connection line is zeroed and the candidate line is dropped entirely`() {
         val sdp = "v=0\r\n" +
                 "o=- 12345 2 IN IP4 192.168.1.5\r\n" +
                 "s=-\r\n" +
@@ -115,7 +115,6 @@ internal class IceCandidateSanitizerTest {
                 "c=IN IP4 0.0.0.0\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" +
                 "a=mid:0\r\n" +
-                "a=candidate:1 1 udp 2122260223 0.0.0.0 54321 typ host generation 0\r\n" +
                 "a=end-of-candidates"
     }
 
@@ -129,7 +128,7 @@ internal class IceCandidateSanitizerTest {
     }
 
     @Test
-    fun `given sdp with relay candidate line, when sanitizeSdp, then primary address kept and raddr zeroed`() {
+    fun `given sdp with relay candidate line, when sanitizeSdp, then it is kept with primary address intact and raddr zeroed`() {
         val sdp = "a=candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
 
         val result = IceCandidateSanitizer.sanitizeSdp(sdp)
@@ -138,7 +137,7 @@ internal class IceCandidateSanitizerTest {
     }
 
     @Test
-    fun `given sdp with malformed candidate line embedded, when sanitizeSdp, then malformed line is redacted to empty`() {
+    fun `given sdp with malformed candidate line embedded, when sanitizeSdp, then the line is dropped entirely`() {
         val sdp = "v=0\r\n" +
                 "a=candidate:garbage\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111"
@@ -146,7 +145,21 @@ internal class IceCandidateSanitizerTest {
         val result = IceCandidateSanitizer.sanitizeSdp(sdp)
 
         result shouldBeEqualTo "v=0\r\n" +
-                "\r\n" +
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111"
+    }
+
+    @Test
+    fun `given sdp with mixed host, srflx and relay candidate lines, when sanitizeSdp, then only the relay line survives`() {
+        val sdp = "v=0\r\n" +
+                "a=candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0\r\n" +
+                "a=candidate:2 1 udp 1685987071 203.0.113.7 54321 typ srflx raddr 192.168.1.5 rport 54321 generation 0\r\n" +
+                "a=candidate:3 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0\r\n" +
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111"
+
+        val result = IceCandidateSanitizer.sanitizeSdp(sdp)
+
+        result shouldBeEqualTo "v=0\r\n" +
+                "a=candidate:3 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 54321 generation 0\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111"
     }
 }
