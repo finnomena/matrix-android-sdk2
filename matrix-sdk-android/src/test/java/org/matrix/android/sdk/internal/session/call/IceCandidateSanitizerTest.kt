@@ -136,4 +136,17 @@ internal class IceCandidateSanitizerTest {
 
         result shouldBeEqualTo "a=candidate:112233 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 54321 generation 0"
     }
+
+    @Test
+    fun `given sdp with malformed candidate line embedded, when sanitizeSdp, then malformed line is redacted to empty`() {
+        val sdp = "v=0\r\n" +
+                "a=candidate:garbage\r\n" +
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111"
+
+        val result = IceCandidateSanitizer.sanitizeSdp(sdp)
+
+        result shouldBeEqualTo "v=0\r\n" +
+                "\r\n" +
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111"
+    }
 }

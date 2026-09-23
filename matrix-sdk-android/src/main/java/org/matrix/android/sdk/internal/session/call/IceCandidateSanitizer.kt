@@ -50,7 +50,7 @@ internal object IceCandidateSanitizer {
     fun sanitizeSdp(sdp: String): String {
         return sdp.lineSequence().joinToString("\r\n") { line ->
             when {
-                line.startsWith("a=candidate:") -> "a=" + sanitizeCandidateLine(line.removePrefix("a="))
+                line.startsWith("a=candidate:") -> sanitizeCandidateLine(line.removePrefix("a=")).let { if (it.isEmpty()) "" else "a=$it" }
                 line.startsWith("c=IN IP4 ") || line.startsWith("c=IN IP6 ") -> sanitizeConnectionLine(line)
                 else -> line
             }
