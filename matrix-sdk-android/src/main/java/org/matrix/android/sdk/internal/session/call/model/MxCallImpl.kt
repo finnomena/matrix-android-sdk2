@@ -44,6 +44,7 @@ import org.matrix.android.sdk.api.session.room.model.call.SdpType
 import org.matrix.android.sdk.api.session.room.model.relation.RelationDefaultContent
 import org.matrix.android.sdk.api.util.Optional
 import org.matrix.android.sdk.internal.session.call.DefaultCallSignalingService
+import org.matrix.android.sdk.internal.session.call.IceCandidateSanitizer
 import org.matrix.android.sdk.internal.session.profile.GetProfileInfoTask
 import org.matrix.android.sdk.internal.session.room.send.LocalEchoEventFactory
 import org.matrix.android.sdk.internal.session.room.send.queue.EventSenderProcessor
@@ -126,7 +127,7 @@ internal class MxCallImpl(
                 callId = callId,
                 partyId = ourPartyId,
                 lifetime = DefaultCallSignalingService.CALL_TIMEOUT_MS,
-                offer = CallInviteContent.Offer(sdp = sdpString),
+                offer = CallInviteContent.Offer(sdp = IceCandidateSanitizer.sanitizeSdp(sdpString)),
                 version = MxCall.VOIP_PROTO_VERSION.toString(),
                 capabilities = buildCapabilities()
         ).let { createEventAndLocalEcho(type = EventType.CALL_INVITE, roomId = roomId, content = it.toContent()) }
@@ -141,7 +142,7 @@ internal class MxCallImpl(
         CallCandidatesContent(
                 callId = callId,
                 partyId = ourPartyId,
-                candidates = candidates,
+                candidates = candidates.map(IceCandidateSanitizer::sanitizeCandidate),
                 version = MxCall.VOIP_PROTO_VERSION.toString()
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_CANDIDATES, roomId = roomId, content = it.toContent()) }
@@ -194,7 +195,7 @@ internal class MxCallImpl(
         CallAnswerContent(
                 callId = callId,
                 partyId = ourPartyId,
-                answer = CallAnswerContent.Answer(sdp = sdpString),
+                answer = CallAnswerContent.Answer(sdp = IceCandidateSanitizer.sanitizeSdp(sdpString)),
                 version = MxCall.VOIP_PROTO_VERSION.toString(),
                 capabilities = buildCapabilities(),
                 relatesTo = buildRelatesTo(),
@@ -209,7 +210,7 @@ internal class MxCallImpl(
                 callId = callId,
                 partyId = ourPartyId,
                 lifetime = DefaultCallSignalingService.CALL_TIMEOUT_MS,
-                description = CallNegotiateContent.Description(sdp = sdpString, type = type),
+                description = CallNegotiateContent.Description(sdp = IceCandidateSanitizer.sanitizeSdp(sdpString), type = type),
                 version = MxCall.VOIP_PROTO_VERSION.toString()
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_NEGOTIATE, roomId = roomId, content = it.toContent()) }
