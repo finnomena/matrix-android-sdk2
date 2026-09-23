@@ -1,40 +1,58 @@
+/*
+ * Copyright 2026 The Matrix.org Foundation C.I.C.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.matrix.android.sdk.internal.session.call
 
 import org.matrix.android.sdk.api.session.room.model.call.CallCandidate
+
+/**
+ * Blanks the `raddr`/`rport` fields on outbound ICE candidate / SDP text before it's sent as a
+ * Matrix call-signaling event, so the other call participant can't learn the user's real network
+ * address. See MOBILITY-4768 and the pentest report's finding 3.2 ("IP Address Disclosure in Chat
+ * Call Feature") — `raddr`/`rport` are the only fields flagged as leaking a real address (verified
+ * against captured relay candidates whose `raddr` matched the tester's real public IP), and the
+ * recommended fix is to blank exactly those two fields to `0.0.0.0`/`9`, not remove them and not
+ * touch anything else.
+ *
+ * The primary candidate address (`candidate:... <address> <port> typ <type>`) is deliberately left
+ * untouched for every candidate type, including `host`/`srflx`. An earlier version of this fix
+ * also redacted/dropped the primary address for non-relay types, which broke real calls: `raddr`/
+ * `rport` are purely informational per RFC 5245 §15.1 (never used in ICE connectivity checks), but
+ * the primary address is — redacting or dropping it changed which candidate pairs the ICE agent
+ * could try, and repeatedly caused `onIceConnectionChange` to end in `FAILED` in live testing.
+ */
 internal object IceCandidateSanitizer {
 
     private const val IPV4_PLACEHOLDER = "0.0.0.0"
     private const val IPV6_PLACEHOLDER = "::"
-    private const val RELAY_TYPE = "relay"
-    private const val CANDIDATE_ADDRESS_INDEX = 4
-    private const val CANDIDATE_TYP_KEYWORD_INDEX = 6
-    private const val CANDIDATE_TYPE_INDEX = 7
-    private const val MIN_CANDIDATE_TOKENS = 8
+    private const val RPORT_PLACEHOLDER = "9"
 
-    /**
-     * Returns the candidate with its `raddr` redacted if it's a `relay` candidate (its primary
-     * address is the TURN server's, not the user's, safe to send), or null if it's a non-relay
-     * candidate (host/srflx/prflx) or malformed — those must be dropped entirely, not sent with a
-     * zeroed primary address: keeping a redacted-but-present candidate in the list still lets the
-     * ICE agent spend its connectivity-check budget on pairs that can never succeed, prioritized
-     * ahead of relay pairs by the ICE priority formula, which can starve out the one pair that
-     * would actually work. See MOBILITY-4768.
-     */
-    fun sanitizeCandidate(candidate: CallCandidate): CallCandidate? {
-        val sanitizedLine = candidate.candidate?.let(::sanitizeCandidateLine) ?: return null
-        return candidate.copy(candidate = sanitizedLine)
+    fun sanitizeCandidate(candidate: CallCandidate): CallCandidate {
+        val original = candidate.candidate ?: return candidate
+        return candidate.copy(candidate = sanitizeCandidateLine(original))
     }
 
     fun sanitizeSdp(sdp: String): String {
-        return sdp.lineSequence()
-                .mapNotNull { line ->
-                    when {
-                        line.startsWith("a=candidate:") -> sanitizeCandidateLine(line.removePrefix("a="))?.let { "a=$it" }
-                        line.startsWith("c=IN IP4 ") || line.startsWith("c=IN IP6 ") -> sanitizeConnectionLine(line)
-                        else -> line
-                    }
-                }
-                .joinToString("\r\n")
+        return sdp.lineSequence().joinToString("\r\n") { line ->
+            when {
+                line.startsWith("a=candidate:") -> "a=" + sanitizeCandidateLine(line.removePrefix("a="))
+                line.startsWith("c=IN IP4 ") || line.startsWith("c=IN IP6 ") -> sanitizeConnectionLine(line)
+                else -> line
+            }
+        }
     }
 
     private fun sanitizeConnectionLine(line: String): String {
@@ -45,23 +63,21 @@ internal object IceCandidateSanitizer {
     }
 
     /**
-     * Returns the line with only its `raddr` redacted if it's a `relay` candidate, or null if it's
-     * a non-relay candidate or doesn't match the expected grammar — both cases must be dropped
-     * entirely rather than kept with a zeroed primary address (see [sanitizeCandidate]).
+     * Finds `raddr`/`rport` by exact token match (not by position), so this works regardless of
+     * whether the rest of the line matches the full candidate-attribute grammar, and leaves a line
+     * with neither field (e.g. every `host` candidate) completely unchanged.
      */
-    private fun sanitizeCandidateLine(line: String): String? {
-        val tokens = line.split(" ")
-        val isWellFormed = tokens.size >= MIN_CANDIDATE_TOKENS &&
-                tokens[0].startsWith("candidate:") &&
-                tokens[CANDIDATE_TYP_KEYWORD_INDEX] == "typ"
-        if (!isWellFormed || tokens[CANDIDATE_TYPE_INDEX] != RELAY_TYPE) return null
-
-        val sanitizedTokens = tokens.toMutableList()
-        val raddrIndex = sanitizedTokens.indexOf("raddr")
-        if (raddrIndex != -1 && raddrIndex + 1 < sanitizedTokens.size) {
-            sanitizedTokens[raddrIndex + 1] = placeholderFor(sanitizedTokens[raddrIndex + 1])
+    private fun sanitizeCandidateLine(line: String): String {
+        val tokens = line.split(" ").toMutableList()
+        val raddrIndex = tokens.indexOf("raddr")
+        if (raddrIndex != -1 && raddrIndex + 1 < tokens.size) {
+            tokens[raddrIndex + 1] = placeholderFor(tokens[raddrIndex + 1])
         }
-        return sanitizedTokens.joinToString(" ")
+        val rportIndex = tokens.indexOf("rport")
+        if (rportIndex != -1 && rportIndex + 1 < tokens.size) {
+            tokens[rportIndex + 1] = RPORT_PLACEHOLDER
+        }
+        return tokens.joinToString(" ")
     }
 
     private fun placeholderFor(address: String): String {
