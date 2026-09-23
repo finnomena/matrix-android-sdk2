@@ -85,6 +85,3 @@ lint/tmp/
 # lint/reports/
 
 /tmp
-
-# superpowers subagent-driven-development scratch workspace
-.superpowers/
