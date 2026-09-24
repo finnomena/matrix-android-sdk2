@@ -138,11 +138,15 @@ internal class MxCallImpl(
     }
 
     override fun sendLocalCallCandidates(candidates: List<CallCandidate>) {
-        Timber.tag(loggerTag.value).v("Send local call canditates $callId: $candidates")
+        val sanitizedCandidates = candidates.mapNotNull(IceCandidateSanitizer::sanitizeCandidate)
+        if (sanitizedCandidates.isEmpty()) {
+            Timber.tag(loggerTag.value).v("Send local call canditates $callId: $candidates")
+            return
+        }
         CallCandidatesContent(
                 callId = callId,
                 partyId = ourPartyId,
-                candidates = candidates.map(IceCandidateSanitizer::sanitizeCandidate),
+                candidates = sanitizedCandidates,
                 version = MxCall.VOIP_PROTO_VERSION.toString()
         )
                 .let { createEventAndLocalEcho(type = EventType.CALL_CANDIDATES, roomId = roomId, content = it.toContent()) }

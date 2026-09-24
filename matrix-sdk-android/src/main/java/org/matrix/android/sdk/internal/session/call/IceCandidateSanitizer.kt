@@ -22,17 +22,27 @@ import org.matrix.android.sdk.api.session.room.model.call.CallCandidate
  * Blanks the `raddr`/`rport` fields on outbound ICE candidate / SDP text before it's sent as a
  * Matrix call-signaling event, so the other call participant can't learn the user's real network
  * address. See MOBILITY-4768 and the pentest report's finding 3.2 ("IP Address Disclosure in Chat
- * Call Feature") — `raddr`/`rport` are the only fields flagged as leaking a real address (verified
+ * Call Feature") — `raddr`/`rport` are the fields flagged as leaking a real address (verified
  * against captured relay candidates whose `raddr` matched the tester's real public IP), and the
  * recommended fix is to blank exactly those two fields to `0.0.0.0`/`9`, not remove them and not
  * touch anything else.
  *
  * The primary candidate address (`candidate:... <address> <port> typ <type>`) is deliberately left
- * untouched for every candidate type, including `host`/`srflx`. An earlier version of this fix
- * also redacted/dropped the primary address for non-relay types, which broke real calls: `raddr`/
- * `rport` are purely informational per RFC 5245 §15.1 (never used in ICE connectivity checks), but
- * the primary address is — redacting or dropping it changed which candidate pairs the ICE agent
- * could try, and repeatedly caused `onIceConnectionChange` to end in `FAILED` in live testing.
+ * untouched for `relay`/`srflx` candidates. An earlier version of this fix also redacted/dropped the
+ * primary address for non-relay types, which broke real calls: `raddr`/`rport` are purely
+ * informational per RFC 5245 §15.1 (never used in ICE connectivity checks), but the primary address
+ * is — redacting or dropping *the address of a candidate that's still sent* changed which candidate
+ * pairs the ICE agent could try, and repeatedly caused `onIceConnectionChange` to end in `FAILED` in
+ * live testing.
+ *
+ * `host` candidates are the one exception: they're dropped outright rather than blanked, because
+ * their primary address is never a relay/NAT-mapped address — it's the device's own network address,
+ * with no `raddr`/`rport` field to redact instead. For IPv4 this is usually just a private LAN
+ * address, but on IPv6 (no NAT) the host candidate's address is typically the device's real, publicly
+ * routable global-unicast address, i.e. the exact class of leak finding 3.2 flagged. Dropping the
+ * candidate before it's ever added to the outbound list/SDP (as opposed to blanking its address in
+ * place) doesn't reproduce the earlier breakage, because the ICE agent simply never sees it as an
+ * option — it still has the `srflx`/`relay` candidates to pair on, which this file leaves untouched.
  */
 internal object IceCandidateSanitizer {
 
@@ -40,19 +50,37 @@ internal object IceCandidateSanitizer {
     private const val IPV6_PLACEHOLDER = "::"
     private const val RPORT_PLACEHOLDER = "0"
 
-    fun sanitizeCandidate(candidate: CallCandidate): CallCandidate {
+    /**
+     * Returns the sanitized candidate, or `null` if it's a `host` candidate and should be dropped
+     * from the outbound list entirely.
+     */
+    fun sanitizeCandidate(candidate: CallCandidate): CallCandidate? {
         val original = candidate.candidate ?: return candidate
+        if (isHostCandidateLine(original)) return null
         return candidate.copy(candidate = sanitizeCandidateLine(original))
     }
 
     fun sanitizeSdp(sdp: String): String {
-        return sdp.lineSequence().joinToString("\r\n") { line ->
+        return sdp.lineSequence().mapNotNull { line ->
             when {
-                line.startsWith("a=candidate:") -> "a=" + sanitizeCandidateLine(line.removePrefix("a="))
+                line.startsWith("a=candidate:") -> sanitizeSdpCandidateLine(line)
                 line.startsWith("c=IN IP4 ") || line.startsWith("c=IN IP6 ") -> sanitizeConnectionLine(line)
                 else -> line
             }
-        }
+        }.joinToString("\r\n")
+    }
+
+    /** Returns `null` if the line is a `host` candidate and should be dropped from the SDP. */
+    private fun sanitizeSdpCandidateLine(line: String): String? {
+        val candidateLine = line.removePrefix("a=")
+        if (isHostCandidateLine(candidateLine)) return null
+        return "a=" + sanitizeCandidateLine(candidateLine)
+    }
+
+    private fun isHostCandidateLine(line: String): Boolean {
+        val tokens = line.split(" ")
+        val typIndex = tokens.indexOf("typ")
+        return typIndex != -1 && typIndex + 1 < tokens.size && tokens[typIndex + 1] == "host"
     }
 
     private fun sanitizeConnectionLine(line: String): String {
@@ -65,7 +93,8 @@ internal object IceCandidateSanitizer {
     /**
      * Finds `raddr`/`rport` by exact token match (not by position), so this works regardless of
      * whether the rest of the line matches the full candidate-attribute grammar, and leaves a line
-     * with neither field (e.g. every `host` candidate) completely unchanged.
+     * with neither field completely unchanged. Only called for `relay`/`srflx` lines — `host` lines
+     * are filtered out by the caller before reaching this function.
      */
     private fun sanitizeCandidateLine(line: String): String {
         val tokens = line.split(" ").toMutableList()
