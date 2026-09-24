@@ -38,7 +38,7 @@ internal object IceCandidateSanitizer {
 
     private const val IPV4_PLACEHOLDER = "0.0.0.0"
     private const val IPV6_PLACEHOLDER = "::"
-    private const val RPORT_PLACEHOLDER = "9"
+    private const val RPORT_PLACEHOLDER = "0"
 
     fun sanitizeCandidate(candidate: CallCandidate): CallCandidate {
         val original = candidate.candidate ?: return candidate
