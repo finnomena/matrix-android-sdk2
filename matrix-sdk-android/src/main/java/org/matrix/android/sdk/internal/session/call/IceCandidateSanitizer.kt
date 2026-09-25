@@ -48,7 +48,7 @@ internal object IceCandidateSanitizer {
 
     private const val IPV4_PLACEHOLDER = "0.0.0.0"
     private const val IPV6_PLACEHOLDER = "::"
-    private const val RPORT_PLACEHOLDER = "0"
+    private const val RPORT_PLACEHOLDER = "9"
 
     /**
      * Returns the sanitized candidate, or `null` if it's a `host` candidate and should be dropped
