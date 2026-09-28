@@ -21,28 +21,15 @@ import org.matrix.android.sdk.api.session.room.model.call.CallCandidate
 /**
  * Blanks the `raddr`/`rport` fields on outbound ICE candidate / SDP text before it's sent as a
  * Matrix call-signaling event, so the other call participant can't learn the user's real network
- * address. See MOBILITY-4768 and the pentest report's finding 3.2 ("IP Address Disclosure in Chat
- * Call Feature") — `raddr`/`rport` are the fields flagged as leaking a real address (verified
- * against captured relay candidates whose `raddr` matched the tester's real public IP), and the
- * recommended fix is to blank exactly those two fields to `0.0.0.0`/`9`, not remove them and not
- * touch anything else.
+ * address.
  *
- * The primary candidate address (`candidate:... <address> <port> typ <type>`) is deliberately left
- * untouched for `relay`/`srflx` candidates. An earlier version of this fix also redacted/dropped the
- * primary address for non-relay types, which broke real calls: `raddr`/`rport` are purely
- * informational per RFC 5245 §15.1 (never used in ICE connectivity checks), but the primary address
- * is — redacting or dropping *the address of a candidate that's still sent* changed which candidate
- * pairs the ICE agent could try, and repeatedly caused `onIceConnectionChange` to end in `FAILED` in
- * live testing.
+ * The primary candidate address (`candidate:... <address> <port> typ <type>`) is left untouched for
+ * `relay`/`srflx` candidates, since it's required for ICE connectivity checks; `raddr`/`rport` are
+ * purely informational per RFC 5245 §15.1 and safe to blank.
  *
- * `host` candidates are the one exception: they're dropped outright rather than blanked, because
- * their primary address is never a relay/NAT-mapped address — it's the device's own network address,
- * with no `raddr`/`rport` field to redact instead. For IPv4 this is usually just a private LAN
- * address, but on IPv6 (no NAT) the host candidate's address is typically the device's real, publicly
- * routable global-unicast address, i.e. the exact class of leak finding 3.2 flagged. Dropping the
- * candidate before it's ever added to the outbound list/SDP (as opposed to blanking its address in
- * place) doesn't reproduce the earlier breakage, because the ICE agent simply never sees it as an
- * option — it still has the `srflx`/`relay` candidates to pair on, which this file leaves untouched.
+ * `host` candidates are dropped outright rather than blanked, because their primary address is the
+ * device's own network address (private on IPv4, often a real publicly routable address on IPv6),
+ * with no `raddr`/`rport` field to redact instead.
  */
 internal object IceCandidateSanitizer {
 

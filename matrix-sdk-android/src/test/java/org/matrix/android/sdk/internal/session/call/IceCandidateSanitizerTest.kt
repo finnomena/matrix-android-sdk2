@@ -26,12 +26,12 @@ internal class IceCandidateSanitizerTest {
     @Test
     fun `given relay candidate with raddr and rport, when sanitizeCandidate, then raddr and rport are blanked and primary address is untouched`() {
         val candidate = CallCandidate(
-                candidate = "candidate:1155324407 1 udp 41820415 34.87.27.160 49157 typ relay raddr 49.230.59.36 rport 49174 generation 0 ufrag V+lk network-id 1 network-cost 10"
+                candidate = "candidate:1155324407 1 udp 41820415 198.51.100.10 49157 typ relay raddr 203.0.113.99 rport 49174 generation 0 ufrag V+lk network-id 1 network-cost 10"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result?.candidate shouldBeEqualTo "candidate:1155324407 1 udp 41820415 34.87.27.160 49157 typ relay raddr 0.0.0.0 rport 9 generation 0 ufrag V+lk network-id 1 network-cost 10"
+        result?.candidate shouldBeEqualTo "candidate:1155324407 1 udp 41820415 198.51.100.10 49157 typ relay raddr 0.0.0.0 rport 9 generation 0 ufrag V+lk network-id 1 network-cost 10"
     }
 
     @Test
@@ -57,11 +57,11 @@ internal class IceCandidateSanitizerTest {
     }
 
     @Test
-    fun `given ipv6 host candidate with a real global unicast address, when sanitizeCandidate, then it is dropped`() {
+    fun `given ipv6 host candidate with a global unicast address, when sanitizeCandidate, then it is dropped`() {
         // IPv6 has no NAT, so a host candidate's address is typically the device's real, publicly
-        // routable address - the same class of leak as finding 3.2, just via a field with no raddr/rport to blank.
+        // routable address, with no raddr/rport field to blank instead.
         val candidate = CallCandidate(
-                candidate = "candidate:1 1 udp 2122262783 2405:9800:bca0:10ae:5c77:16ff:fe4c:4c47 60299 typ host generation 0 ufrag SqQR network-id 4 network-cost 10"
+                candidate = "candidate:1 1 udp 2122262783 2001:db8:85a3::8a2e:370:7334 60299 typ host generation 0 ufrag SqQR network-id 4 network-cost 10"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
@@ -72,23 +72,23 @@ internal class IceCandidateSanitizerTest {
     @Test
     fun `given candidate with ipv6 raddr, when sanitizeCandidate, then raddr is replaced with double colon`() {
         val candidate = CallCandidate(
-                candidate = "candidate:1 1 udp 1677729535 34.87.27.160 3478 typ relay raddr 2001:db8::1 rport 54321 generation 0"
+                candidate = "candidate:1 1 udp 1677729535 198.51.100.10 3478 typ relay raddr 2001:db8::1 rport 54321 generation 0"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result?.candidate shouldBeEqualTo "candidate:1 1 udp 1677729535 34.87.27.160 3478 typ relay raddr :: rport 9 generation 0"
+        result?.candidate shouldBeEqualTo "candidate:1 1 udp 1677729535 198.51.100.10 3478 typ relay raddr :: rport 9 generation 0"
     }
 
     @Test
     fun `given candidate with raddr but no rport, when sanitizeCandidate, then only raddr is blanked`() {
         val candidate = CallCandidate(
-                candidate = "candidate:1 1 udp 1677729535 34.87.27.160 3478 typ relay raddr 192.168.1.5 generation 0"
+                candidate = "candidate:1 1 udp 1677729535 198.51.100.10 3478 typ relay raddr 192.168.1.5 generation 0"
         )
 
         val result = IceCandidateSanitizer.sanitizeCandidate(candidate)
 
-        result?.candidate shouldBeEqualTo "candidate:1 1 udp 1677729535 34.87.27.160 3478 typ relay raddr 0.0.0.0 generation 0"
+        result?.candidate shouldBeEqualTo "candidate:1 1 udp 1677729535 198.51.100.10 3478 typ relay raddr 0.0.0.0 generation 0"
     }
 
     @Test
@@ -117,7 +117,7 @@ internal class IceCandidateSanitizerTest {
                 "c=IN IP4 192.168.1.5\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" +
                 "a=mid:0\r\n" +
-                "a=candidate:1 1 udp 41820415 34.87.27.160 49157 typ relay raddr 192.168.1.5 rport 54321 generation 0\r\n" +
+                "a=candidate:1 1 udp 41820415 198.51.100.10 49157 typ relay raddr 192.168.1.5 rport 54321 generation 0\r\n" +
                 "a=end-of-candidates"
 
         val result = IceCandidateSanitizer.sanitizeSdp(sdp)
@@ -128,7 +128,7 @@ internal class IceCandidateSanitizerTest {
                 "c=IN IP4 0.0.0.0\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" +
                 "a=mid:0\r\n" +
-                "a=candidate:1 1 udp 41820415 34.87.27.160 49157 typ relay raddr 0.0.0.0 rport 9 generation 0\r\n" +
+                "a=candidate:1 1 udp 41820415 198.51.100.10 49157 typ relay raddr 0.0.0.0 rport 9 generation 0\r\n" +
                 "a=end-of-candidates"
     }
 
@@ -156,7 +156,7 @@ internal class IceCandidateSanitizerTest {
     @Test
     fun `given sdp with an ipv6 host candidate line, when sanitizeSdp, then the line is dropped`() {
         val sdp = "v=0\r\n" +
-                "a=candidate:1 1 udp 2122262783 2405:9800:bca0:10ae:5c77:16ff:fe4c:4c47 60299 typ host generation 0\r\n" +
+                "a=candidate:1 1 udp 2122262783 2001:db8:85a3::8a2e:370:7334 60299 typ host generation 0\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111"
 
         val result = IceCandidateSanitizer.sanitizeSdp(sdp)
@@ -170,14 +170,14 @@ internal class IceCandidateSanitizerTest {
         val sdp = "v=0\r\n" +
                 "a=candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0\r\n" +
                 "a=candidate:2 1 udp 1685987071 203.0.113.7 54321 typ srflx raddr 192.168.1.5 rport 54321 generation 0\r\n" +
-                "a=candidate:3 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0\r\n" +
+                "a=candidate:3 1 udp 41886234 198.51.100.20 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111"
 
         val result = IceCandidateSanitizer.sanitizeSdp(sdp)
 
         result shouldBeEqualTo "v=0\r\n" +
                 "a=candidate:2 1 udp 1685987071 203.0.113.7 54321 typ srflx raddr 0.0.0.0 rport 9 generation 0\r\n" +
-                "a=candidate:3 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 9 generation 0\r\n" +
+                "a=candidate:3 1 udp 41886234 198.51.100.20 3478 typ relay raddr 0.0.0.0 rport 9 generation 0\r\n" +
                 "m=audio 9 UDP/TLS/RTP/SAVPF 111"
     }
 }

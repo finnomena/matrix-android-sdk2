@@ -40,8 +40,8 @@ private const val A_CALL_ID = "call-id-123"
 private const val A_ROOM_ID = "!room:matrix.org"
 private const val A_USER_ID = "@user:matrix.org"
 private const val A_PARTY_ID = "party-id-abc"
-private const val A_REAL_SDP_WITH_IP = "v=0\r\nc=IN IP4 192.168.1.5\r\na=candidate:1 1 udp 41820415 34.87.27.160 49157 typ relay raddr 192.168.1.5 rport 54321 generation 0"
-private const val A_SANITIZED_SDP = "v=0\r\nc=IN IP4 0.0.0.0\r\na=candidate:1 1 udp 41820415 34.87.27.160 49157 typ relay raddr 0.0.0.0 rport 9 generation 0"
+private const val A_SDP_WITH_IP = "v=0\r\nc=IN IP4 192.168.1.5\r\na=candidate:1 1 udp 41820415 198.51.100.10 49157 typ relay raddr 192.168.1.5 rport 54321 generation 0"
+private const val A_SANITIZED_SDP = "v=0\r\nc=IN IP4 0.0.0.0\r\na=candidate:1 1 udp 41820415 198.51.100.10 49157 typ relay raddr 0.0.0.0 rport 9 generation 0"
 
 internal class MxCallImplIceRedactionTest {
 
@@ -82,37 +82,37 @@ internal class MxCallImplIceRedactionTest {
     }
 
     @Test
-    fun `given outgoing call, when offerSdp is called with a real IP in the sdp, then posted event content has the sanitized sdp`() {
+    fun `given outgoing call, when offerSdp is called with an IP in the sdp, then posted event content has the sanitized sdp`() {
         val eventSlot = slot<Event>()
         every { eventSenderProcessor.postEvent(capture(eventSlot), any(), any()) } returns mockk()
 
         val call = createCallImpl(isOutgoing = true)
-        call.offerSdp(sdpString = A_REAL_SDP_WITH_IP)
+        call.offerSdp(sdpString = A_SDP_WITH_IP)
 
         val offer = eventSlot.captured.content?.get("offer") as? Map<*, *>
         offer?.get("sdp") shouldBeEqualTo A_SANITIZED_SDP
     }
 
     @Test
-    fun `given incoming call, when accept is called with a real IP in the sdp, then posted event content has the sanitized sdp`() {
+    fun `given incoming call, when accept is called with an IP in the sdp, then posted event content has the sanitized sdp`() {
         val eventSlot = slot<Event>()
         every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
 
         val call = createCallImpl(isOutgoing = false)
         call.opponentUserId = "@opponent:matrix.org"
-        call.accept(sdpString = A_REAL_SDP_WITH_IP)
+        call.accept(sdpString = A_SDP_WITH_IP)
 
         val answer = eventSlot.captured.content?.get("answer") as? Map<*, *>
         answer?.get("sdp") shouldBeEqualTo A_SANITIZED_SDP
     }
 
     @Test
-    fun `given call, when negotiate is called with a real IP in the sdp, then posted event content has the sanitized sdp`() {
+    fun `given call, when negotiate is called with an IP in the sdp, then posted event content has the sanitized sdp`() {
         val eventSlot = slot<Event>()
         every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
 
         val call = createCallImpl(isOutgoing = true)
-        call.negotiate(sdpString = A_REAL_SDP_WITH_IP, type = SdpType.OFFER)
+        call.negotiate(sdpString = A_SDP_WITH_IP, type = SdpType.OFFER)
 
         val description = eventSlot.captured.content?.get("description") as? Map<*, *>
         description?.get("sdp") shouldBeEqualTo A_SANITIZED_SDP
@@ -150,14 +150,14 @@ internal class MxCallImplIceRedactionTest {
                         CallCandidate(
                                 sdpMid = "0",
                                 sdpMLineIndex = 0,
-                                candidate = "candidate:1 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
+                                candidate = "candidate:1 1 udp 41886234 198.51.100.20 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
                         )
                 )
         )
 
         val candidates = eventSlot.captured.content?.get("candidates") as? List<*>
         val firstCandidate = candidates?.firstOrNull() as? Map<*, *>
-        firstCandidate?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 9 generation 0"
+        firstCandidate?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 41886234 198.51.100.20 3478 typ relay raddr 0.0.0.0 rport 9 generation 0"
     }
 
     @Test
@@ -176,7 +176,7 @@ internal class MxCallImplIceRedactionTest {
                         CallCandidate(
                                 sdpMid = "0",
                                 sdpMLineIndex = 0,
-                                candidate = "candidate:2 1 udp 41886234 34.90.12.7 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
+                                candidate = "candidate:2 1 udp 41886234 198.51.100.20 3478 typ relay raddr 192.168.1.5 rport 54321 generation 0"
                         )
                 )
         )
@@ -184,6 +184,6 @@ internal class MxCallImplIceRedactionTest {
         val candidates = eventSlot.captured.content?.get("candidates") as? List<*>
         candidates?.size shouldBeEqualTo 2
         (candidates?.get(0) as? Map<*, *>)?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0"
-        (candidates?.get(1) as? Map<*, *>)?.get("candidate") shouldBeEqualTo "candidate:2 1 udp 41886234 34.90.12.7 3478 typ relay raddr 0.0.0.0 rport 9 generation 0"
+        (candidates?.get(1) as? Map<*, *>)?.get("candidate") shouldBeEqualTo "candidate:2 1 udp 41886234 198.51.100.20 3478 typ relay raddr 0.0.0.0 rport 9 generation 0"
     }
 }
