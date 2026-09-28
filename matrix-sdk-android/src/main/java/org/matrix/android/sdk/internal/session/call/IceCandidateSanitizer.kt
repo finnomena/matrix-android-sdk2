@@ -18,29 +18,10 @@ package org.matrix.android.sdk.internal.session.call
 
 import org.matrix.android.sdk.api.session.room.model.call.CallCandidate
 
-/**
- * Blanks the `raddr`/`rport` fields on outbound ICE candidate / SDP text before it's sent as a
- * Matrix call-signaling event, so the other call participant can't learn the user's real network
- * address.
- *
- * The primary candidate address (`candidate:... <address> <port> typ <type>`) is left untouched for
- * `relay`/`srflx` candidates, since it's required for ICE connectivity checks; `raddr`/`rport` are
- * purely informational per RFC 5245 §15.1 and safe to blank.
- *
- * `host` candidates are dropped outright rather than blanked, because their primary address is the
- * device's own network address (private on IPv4, often a real publicly routable address on IPv6),
- * with no `raddr`/`rport` field to redact instead.
- */
 internal object IceCandidateSanitizer {
-
     private const val IPV4_PLACEHOLDER = "0.0.0.0"
     private const val IPV6_PLACEHOLDER = "::"
     private const val RPORT_PLACEHOLDER = "9"
-
-    /**
-     * Returns the sanitized candidate, or `null` if it's a `host` candidate and should be dropped
-     * from the outbound list entirely.
-     */
     fun sanitizeCandidate(candidate: CallCandidate): CallCandidate? {
         val original = candidate.candidate ?: return candidate
         if (isHostCandidateLine(original)) return null
@@ -76,13 +57,6 @@ internal object IceCandidateSanitizer {
         val placeholder = if (tokens[1] == "IP6") IPV6_PLACEHOLDER else IPV4_PLACEHOLDER
         return listOf(tokens[0], tokens[1], placeholder).joinToString(" ")
     }
-
-    /**
-     * Finds `raddr`/`rport` by exact token match (not by position), so this works regardless of
-     * whether the rest of the line matches the full candidate-attribute grammar, and leaves a line
-     * with neither field completely unchanged. Only called for `relay`/`srflx` lines — `host` lines
-     * are filtered out by the caller before reaching this function.
-     */
     private fun sanitizeCandidateLine(line: String): String {
         val tokens = line.split(" ").toMutableList()
         val raddrIndex = tokens.indexOf("raddr")
