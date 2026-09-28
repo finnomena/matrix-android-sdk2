@@ -119,7 +119,7 @@ internal class MxCallImplIceRedactionTest {
     }
 
     @Test
-    fun `given call, when sendLocalCallCandidates is called with a host candidate, then it is posted completely unchanged`() {
+    fun `given call, when sendLocalCallCandidates is called with only a host candidate, then its primary address and port are blanked and it is still posted`() {
         val eventSlot = slot<Event>()
         every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
 
@@ -136,7 +136,7 @@ internal class MxCallImplIceRedactionTest {
 
         val candidates = eventSlot.captured.content?.get("candidates") as? List<*>
         val firstCandidate = candidates?.firstOrNull() as? Map<*, *>
-        firstCandidate?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0"
+        firstCandidate?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 2122260223 0.0.0.0 9 typ host generation 0"
     }
 
     @Test
@@ -161,7 +161,7 @@ internal class MxCallImplIceRedactionTest {
     }
 
     @Test
-    fun `given call, when sendLocalCallCandidates is called with a mix of host and relay candidates, then both are posted with only the relay raddr rport blanked`() {
+    fun `given call, when sendLocalCallCandidates is called with a mix of host and relay candidates, then both are posted with their real addresses blanked`() {
         val eventSlot = slot<Event>()
         every { eventSenderProcessor.postEvent(capture(eventSlot)) } returns mockk()
 
@@ -183,7 +183,7 @@ internal class MxCallImplIceRedactionTest {
 
         val candidates = eventSlot.captured.content?.get("candidates") as? List<*>
         candidates?.size shouldBeEqualTo 2
-        (candidates?.get(0) as? Map<*, *>)?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host generation 0"
+        (candidates?.get(0) as? Map<*, *>)?.get("candidate") shouldBeEqualTo "candidate:1 1 udp 2122260223 0.0.0.0 9 typ host generation 0"
         (candidates?.get(1) as? Map<*, *>)?.get("candidate") shouldBeEqualTo "candidate:2 1 udp 41886234 198.51.100.20 3478 typ relay raddr 0.0.0.0 rport 9 generation 0"
     }
 }

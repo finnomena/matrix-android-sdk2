@@ -22,27 +22,23 @@ internal object IceCandidateSanitizer {
     private const val IPV4_PLACEHOLDER = "0.0.0.0"
     private const val IPV6_PLACEHOLDER = "::"
     private const val RPORT_PLACEHOLDER = "9"
-    fun sanitizeCandidate(candidate: CallCandidate): CallCandidate? {
+
+    private const val CONNECTION_ADDRESS_INDEX = 4
+    private const val CONNECTION_PORT_INDEX = 5
+
+    fun sanitizeCandidate(candidate: CallCandidate): CallCandidate {
         val original = candidate.candidate ?: return candidate
-        if (isHostCandidateLine(original)) return null
         return candidate.copy(candidate = sanitizeCandidateLine(original))
     }
 
     fun sanitizeSdp(sdp: String): String {
-        return sdp.lineSequence().mapNotNull { line ->
+        return sdp.lineSequence().map { line ->
             when {
-                line.startsWith("a=candidate:") -> sanitizeSdpCandidateLine(line)
+                line.startsWith("a=candidate:") -> "a=" + sanitizeCandidateLine(line.removePrefix("a="))
                 line.startsWith("c=IN IP4 ") || line.startsWith("c=IN IP6 ") -> sanitizeConnectionLine(line)
                 else -> line
             }
         }.joinToString("\r\n")
-    }
-
-    /** Returns `null` if the line is a `host` candidate and should be dropped from the SDP. */
-    private fun sanitizeSdpCandidateLine(line: String): String? {
-        val candidateLine = line.removePrefix("a=")
-        if (isHostCandidateLine(candidateLine)) return null
-        return "a=" + sanitizeCandidateLine(candidateLine)
     }
 
     private fun isHostCandidateLine(line: String): Boolean {
@@ -57,8 +53,13 @@ internal object IceCandidateSanitizer {
         val placeholder = if (tokens[1] == "IP6") IPV6_PLACEHOLDER else IPV4_PLACEHOLDER
         return listOf(tokens[0], tokens[1], placeholder).joinToString(" ")
     }
+
     private fun sanitizeCandidateLine(line: String): String {
         val tokens = line.split(" ").toMutableList()
+        if (tokens.size > CONNECTION_PORT_INDEX && isHostCandidateLine(line)) {
+            tokens[CONNECTION_ADDRESS_INDEX] = placeholderFor(tokens[CONNECTION_ADDRESS_INDEX])
+            tokens[CONNECTION_PORT_INDEX] = RPORT_PLACEHOLDER
+        }
         val raddrIndex = tokens.indexOf("raddr")
         if (raddrIndex != -1 && raddrIndex + 1 < tokens.size) {
             tokens[raddrIndex + 1] = placeholderFor(tokens[raddrIndex + 1])

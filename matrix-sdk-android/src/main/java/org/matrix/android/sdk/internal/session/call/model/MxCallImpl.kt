@@ -138,11 +138,7 @@ internal class MxCallImpl(
     }
 
     override fun sendLocalCallCandidates(candidates: List<CallCandidate>) {
-        val sanitizedCandidates = candidates.mapNotNull(IceCandidateSanitizer::sanitizeCandidate)
-        if (sanitizedCandidates.isEmpty()) {
-            Timber.tag(loggerTag.value).v("Send local call canditates $callId: $candidates")
-            return
-        }
+        val sanitizedCandidates = candidates.map(IceCandidateSanitizer::sanitizeCandidate)
         CallCandidatesContent(
                 callId = callId,
                 partyId = ourPartyId,
