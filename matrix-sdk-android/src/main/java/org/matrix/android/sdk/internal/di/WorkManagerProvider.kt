@@ -83,9 +83,9 @@ internal class WorkManagerProvider @Inject constructor(
             val checkWorkerRequest = OneTimeWorkRequestBuilder<MatrixWorkerFactory.CheckFactoryWorker>().build()
             workManager.enqueue(checkWorkerRequest)
             val checkWorkerLiveState = workManager.getWorkInfoByIdLiveData(checkWorkerRequest.id)
-            val observer = object : Observer<WorkInfo> {
-                override fun onChanged(value: WorkInfo) {
-                    if (value.state.isFinished) {
+            val observer = object : Observer<WorkInfo?> {
+                override fun onChanged(value: WorkInfo?) {
+                    if (value?.state?.isFinished == true) {
                         checkWorkerLiveState.removeObserver(this)
                         if (value.state == WorkInfo.State.FAILED) {
                             throw RuntimeException(
