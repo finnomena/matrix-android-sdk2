@@ -19,9 +19,10 @@ package org.matrix.android.sdk.internal.network.token
 import org.matrix.android.sdk.api.auth.data.Credentials
 
 /**
- * Performs a token login (`m.login.token`) with the given login token, reusing the current session's
- * device id, and returns the fresh [Credentials]. It does not create a new [org.matrix.android.sdk.api.session.Session].
+ * Performs a login with the given host-provided login parameters (any login type, e.g. `m.login.token`
+ * or `org.matrix.login.jwt`), reusing the current session's device id, and returns the fresh
+ * [Credentials]. It does not create a new [org.matrix.android.sdk.api.session.Session].
  */
 internal interface TokenRefreshLoginTask {
-    suspend fun execute(loginToken: String): Credentials
+    suspend fun execute(loginParams: Map<String, Any>): Credentials
 }

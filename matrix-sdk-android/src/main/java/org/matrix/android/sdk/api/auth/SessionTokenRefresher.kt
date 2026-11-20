@@ -17,16 +17,21 @@
 package org.matrix.android.sdk.api.auth
 
 /**
- * Provides a fresh login token (`m.login.token`) so the SDK can silently re-login and
- * refresh the homeserver access token when a request fails with HTTP 401.
+ * Provides fresh login parameters so the SDK can silently re-login and refresh the homeserver access
+ * token when a request fails with HTTP 401.
  *
  * Implemented by the host application and registered via [org.matrix.android.sdk.api.MatrixConfiguration].
- * The SDK uses the returned token to perform a token login (reusing the current device id) and then
- * retries the failed request transparently.
+ * The returned map is sent as-is to the `/login` endpoint (the SDK adds the current `device_id` so the
+ * refreshed session keeps the same device), then the SDK retries the failed request transparently.
  *
- * Return `null` if a fresh login token cannot be obtained (e.g. the host session has also expired);
+ * The map must at least contain the login `"type"` and its token, matching whatever flow the host used
+ * to log in originally, e.g.:
+ * - `mapOf("type" to "m.login.token", "token" to loginToken)`
+ * - `mapOf("type" to "org.matrix.login.jwt", "token" to jwtToken)`
+ *
+ * Return `null` if fresh login parameters cannot be obtained (e.g. the host session has also expired);
  * the SDK will then surface the usual [org.matrix.android.sdk.api.failure.GlobalError.InvalidToken].
  */
 interface SessionTokenRefresher {
-    suspend fun getNewLoginToken(): String?
+    suspend fun getLoginParams(): Map<String, Any>?
 }

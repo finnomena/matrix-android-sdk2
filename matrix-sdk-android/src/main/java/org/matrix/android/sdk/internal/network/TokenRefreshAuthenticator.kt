@@ -62,9 +62,9 @@ internal class TokenRefreshAuthenticator(
             }
 
             val newAccessToken = runBlocking {
-                val loginToken = refresher.getNewLoginToken() ?: return@runBlocking null
+                val loginParams = refresher.getLoginParams() ?: return@runBlocking null
                 try {
-                    val credentials = tokenRefreshLoginTask.execute(loginToken)
+                    val credentials = tokenRefreshLoginTask.execute(loginParams)
                     sessionParamsStore.updateCredentials(credentials)
                     credentials.accessToken
                 } catch (throwable: Throwable) {

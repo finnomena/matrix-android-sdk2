@@ -21,7 +21,6 @@ import okhttp3.OkHttpClient
 import org.matrix.android.sdk.api.auth.data.Credentials
 import org.matrix.android.sdk.internal.auth.AuthAPI
 import org.matrix.android.sdk.internal.auth.SessionParamsStore
-import org.matrix.android.sdk.internal.auth.data.TokenLoginParams
 import org.matrix.android.sdk.internal.di.SessionId
 import org.matrix.android.sdk.internal.di.Unauthenticated
 import org.matrix.android.sdk.internal.network.RetrofitFactory
@@ -36,7 +35,7 @@ internal class DefaultTokenRefreshLoginTask @Inject constructor(
         private val sessionParamsStore: SessionParamsStore,
 ) : TokenRefreshLoginTask {
 
-    override suspend fun execute(loginToken: String): Credentials {
+    override suspend fun execute(loginParams: Map<String, Any>): Credentials {
         val sessionParams = sessionParamsStore.get(sessionId)
                 ?: error("No session params found for $sessionId")
         val homeServerConnectionConfig = sessionParams.homeServerConnectionConfig
@@ -51,13 +50,13 @@ internal class DefaultTokenRefreshLoginTask @Inject constructor(
                 .create(AuthAPI::class.java)
 
         // Reuse the current device id so the refreshed session keeps the same device (and its crypto state).
-        val loginParams = TokenLoginParams(
-                token = loginToken,
-                deviceId = sessionParams.deviceId,
-        )
+        // The host-provided params carry the login type + token (m.login.token, org.matrix.login.jwt, ...).
+        val body = loginParams.toMutableMap().apply {
+            put("device_id", sessionParams.deviceId)
+        }
 
         return executeRequest(null) {
-            authAPI.login(loginParams)
+            authAPI.login(body)
         }
     }
 }

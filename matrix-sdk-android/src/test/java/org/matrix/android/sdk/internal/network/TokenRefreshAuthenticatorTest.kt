@@ -47,14 +47,16 @@ class TokenRefreshAuthenticatorTest {
     )
 
     @Test
-    fun `given a refresher provides a token when authenticate then retries request with the refreshed access token`() {
+    fun `given a refresher provides login params when authenticate then re-logins with those params and retries with the refreshed access token`() {
+        val loginParams = mapOf<String, Any>("type" to "org.matrix.login.jwt", "token" to "a-jwt")
         every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
-        coEvery { sessionTokenRefresher.getNewLoginToken() } returns "a-login-token"
-        coEvery { tokenRefreshLoginTask.execute("a-login-token") } returns credentials("new-token")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } returns credentials("new-token")
 
         val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
 
         result?.header(HttpHeaders.Authorization) shouldBeEqualTo "Bearer new-token"
+        coVerify { tokenRefreshLoginTask.execute(loginParams) }
         coVerify { sessionParamsStore.updateCredentials(match { it.accessToken == "new-token" }) }
     }
 
@@ -66,7 +68,7 @@ class TokenRefreshAuthenticatorTest {
         val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
 
         result?.header(HttpHeaders.Authorization) shouldBeEqualTo "Bearer already-refreshed-token"
-        coVerify(exactly = 0) { sessionTokenRefresher.getNewLoginToken() }
+        coVerify(exactly = 0) { sessionTokenRefresher.getLoginParams() }
     }
 
     @Test
@@ -74,13 +76,13 @@ class TokenRefreshAuthenticatorTest {
         val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token", alreadyRetried = true))
 
         result.shouldBeNull()
-        coVerify(exactly = 0) { sessionTokenRefresher.getNewLoginToken() }
+        coVerify(exactly = 0) { sessionTokenRefresher.getLoginParams() }
     }
 
     @Test
-    fun `given the refresher cannot provide a login token when authenticate then gives up`() {
+    fun `given the refresher cannot provide login params when authenticate then gives up`() {
         every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
-        coEvery { sessionTokenRefresher.getNewLoginToken() } returns null
+        coEvery { sessionTokenRefresher.getLoginParams() } returns null
 
         val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
 
@@ -89,10 +91,11 @@ class TokenRefreshAuthenticatorTest {
     }
 
     @Test
-    fun `given the token login fails when authenticate then gives up`() {
+    fun `given the re-login fails when authenticate then gives up`() {
+        val loginParams = mapOf<String, Any>("type" to "m.login.token", "token" to "a-login-token")
         every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
-        coEvery { sessionTokenRefresher.getNewLoginToken() } returns "a-login-token"
-        coEvery { tokenRefreshLoginTask.execute("a-login-token") } throws IllegalStateException("login failed")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } throws IllegalStateException("login failed")
 
         val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
 
