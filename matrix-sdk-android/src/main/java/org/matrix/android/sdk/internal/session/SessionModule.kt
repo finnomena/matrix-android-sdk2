@@ -56,6 +56,7 @@ import org.matrix.android.sdk.internal.di.DeviceId
 import org.matrix.android.sdk.internal.di.SessionDatabase
 import org.matrix.android.sdk.internal.di.SessionDownloadsDirectory
 import org.matrix.android.sdk.internal.di.SessionFilesDirectory
+import org.matrix.android.sdk.internal.auth.SessionParamsStore
 import org.matrix.android.sdk.internal.di.SessionId
 import org.matrix.android.sdk.internal.di.SessionRustFilesDirectory
 import org.matrix.android.sdk.internal.di.Unauthenticated
@@ -75,8 +76,11 @@ import org.matrix.android.sdk.internal.network.httpclient.addAccessTokenIntercep
 import org.matrix.android.sdk.internal.network.httpclient.addSocketFactory
 import org.matrix.android.sdk.internal.network.httpclient.applyMatrixConfiguration
 import org.matrix.android.sdk.internal.network.interceptors.CurlLoggingInterceptor
+import org.matrix.android.sdk.internal.network.TokenRefreshAuthenticator
 import org.matrix.android.sdk.internal.network.token.AccessTokenProvider
+import org.matrix.android.sdk.internal.network.token.DefaultTokenRefreshLoginTask
 import org.matrix.android.sdk.internal.network.token.HomeserverAccessTokenProvider
+import org.matrix.android.sdk.internal.network.token.TokenRefreshLoginTask
 import org.matrix.android.sdk.internal.session.call.CallEventProcessor
 import org.matrix.android.sdk.internal.session.download.DownloadProgressInterceptor
 import org.matrix.android.sdk.internal.session.events.DefaultEventService
@@ -243,11 +247,13 @@ internal abstract class SessionModule {
                 @Authenticated accessTokenProvider: AccessTokenProvider,
                 @SessionId sessionId: String,
                 @MockHttpInterceptor testInterceptor: TestInterceptor?,
+                tokenRefreshAuthenticator: TokenRefreshAuthenticator,
                 matrixConfiguration: MatrixConfiguration,
         ): OkHttpClient {
             return okHttpClient
                     .newBuilder()
                     .addAccessTokenInterceptor(accessTokenProvider)
+                    .authenticator(tokenRefreshAuthenticator)
                     .apply {
                         if (testInterceptor != null) {
                             testInterceptor.sessionId = sessionId
@@ -256,6 +262,23 @@ internal abstract class SessionModule {
                     }
                     .applyMatrixConfiguration(matrixConfiguration)
                     .build()
+        }
+
+        @JvmStatic
+        @Provides
+        @SessionScope
+        fun providesTokenRefreshAuthenticator(
+                @SessionId sessionId: String,
+                sessionParamsStore: SessionParamsStore,
+                tokenRefreshLoginTask: TokenRefreshLoginTask,
+                matrixConfiguration: MatrixConfiguration,
+        ): TokenRefreshAuthenticator {
+            return TokenRefreshAuthenticator(
+                    sessionId = sessionId,
+                    sessionParamsStore = sessionParamsStore,
+                    tokenRefreshLoginTask = tokenRefreshLoginTask,
+                    sessionTokenRefresher = matrixConfiguration.sessionTokenRefresher,
+            )
         }
 
         @JvmStatic
@@ -328,6 +351,9 @@ internal abstract class SessionModule {
     @Binds
     @Authenticated
     abstract fun bindAccessTokenProvider(provider: HomeserverAccessTokenProvider): AccessTokenProvider
+
+    @Binds
+    abstract fun bindTokenRefreshLoginTask(task: DefaultTokenRefreshLoginTask): TokenRefreshLoginTask
 
     @Binds
     abstract fun bindSession(session: DefaultSession): Session
