@@ -68,8 +68,10 @@ internal class TokenRefreshAuthenticator(
         // Give up if this request already went through a refresh + retry cycle, to avoid an endless loop.
         if (responseCount(response) >= MAX_ATTEMPTS) return null
 
-        // Only react to the homeserver telling us the token is unknown/expired, not to any other 401.
-        if (!response.isUnknownTokenError()) return null
+        // Only react to 401s that a re-login can actually recover (unknown/missing token). Other token
+        // errors such as ORG_MATRIX_EXPIRED_ACCOUNT are left to surface, since minting a new token would
+        // not fix them.
+        if (!response.isRecoverableTokenError()) return null
 
         val rejectedToken = response.request.header(HttpHeaders.Authorization)?.removePrefix(BEARER_PREFIX)
 
@@ -112,10 +114,10 @@ internal class TokenRefreshAuthenticator(
         }
     }
 
-    private fun Response.isUnknownTokenError(): Boolean {
+    private fun Response.isRecoverableTokenError(): Boolean {
         return try {
             val body = peekBody(MAX_ERROR_BODY_BYTES).string()
-            matrixErrorAdapter.fromJson(body)?.code == MatrixError.M_UNKNOWN_TOKEN
+            matrixErrorAdapter.fromJson(body)?.code in RECOVERABLE_TOKEN_ERRORS
         } catch (throwable: Throwable) {
             false
         }
@@ -136,5 +138,12 @@ internal class TokenRefreshAuthenticator(
         private const val BEARER_PREFIX = "Bearer "
         private const val REFRESH_COOL_DOWN_MS = 10_000L
         private const val MAX_ERROR_BODY_BYTES = 10_000L
+
+        // Token errors a silent re-login can actually recover. ORG_MATRIX_EXPIRED_ACCOUNT is intentionally
+        // excluded: a fresh token does not un-expire the account, so it must surface instead.
+        private val RECOVERABLE_TOKEN_ERRORS = setOf(
+                MatrixError.M_UNKNOWN_TOKEN,
+                MatrixError.M_MISSING_TOKEN,
+        )
     }
 }

@@ -79,6 +79,29 @@ class TokenRefreshAuthenticatorTest {
     }
 
     @Test
+    fun `given a missing token 401 when authenticate then refreshes`() {
+        val loginParams = mapOf<String, Any>("type" to "m.login.token", "token" to "a-login-token")
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } returns credentials("new-token")
+
+        val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token", errcode = "M_MISSING_TOKEN"))
+
+        result?.header(HttpHeaders.Authorization) shouldBeEqualTo "Bearer new-token"
+        coVerify { sessionTokenRefresher.getLoginParams() }
+    }
+
+    @Test
+    fun `given an expired account 401 when authenticate then does not refresh`() {
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
+
+        val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token", errcode = "ORG_MATRIX_EXPIRED_ACCOUNT"))
+
+        result.shouldBeNull()
+        coVerify(exactly = 0) { sessionTokenRefresher.getLoginParams() }
+    }
+
+    @Test
     fun `given the stored token already changed when authenticate then retries with the stored token without refreshing`() {
         // Another concurrent 401 already refreshed the token in the store.
         every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("already-refreshed-token")
