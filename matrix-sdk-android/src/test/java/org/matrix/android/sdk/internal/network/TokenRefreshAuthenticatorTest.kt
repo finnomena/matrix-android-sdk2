@@ -164,6 +164,32 @@ class TokenRefreshAuthenticatorTest {
     }
 
     @Test
+    fun `given the max refreshes within the window is reached when authenticate then gives up`() {
+        val loginParams = mapOf<String, Any>("type" to "m.login.token", "token" to "a-login-token")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } returnsMany listOf(
+                credentials("t1"), credentials("t2"), credentials("t3"), credentials("t4"))
+
+        // Three refreshes spaced past the cool-down but inside the same window.
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old")
+        authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old"))
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("t1")
+        nowMs += 11_000
+        authenticator.authenticate(route = null, response = unauthorizedResponse(token = "t1"))
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("t2")
+        nowMs += 11_000
+        authenticator.authenticate(route = null, response = unauthorizedResponse(token = "t2"))
+
+        // The 4th attempt within the window must give up instead of refreshing again.
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("t3")
+        nowMs += 11_000
+        val fourth = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "t3"))
+
+        fourth.shouldBeNull()
+        coVerify(exactly = 3) { sessionTokenRefresher.getLoginParams() }
+    }
+
+    @Test
     fun `given a freshly minted token is rejected after the cool-down when authenticate then refreshes again`() {
         val loginParams = mapOf<String, Any>("type" to "m.login.token", "token" to "a-login-token")
         coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams

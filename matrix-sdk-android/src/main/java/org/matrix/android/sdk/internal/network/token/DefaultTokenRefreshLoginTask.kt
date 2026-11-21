@@ -54,10 +54,12 @@ internal class DefaultTokenRefreshLoginTask @Inject constructor(
         val authAPI = retrofitFactory.create(client, homeServerUrl)
                 .create(AuthAPI::class.java)
 
-        // Reuse the current device id so the refreshed session keeps the same device (and its crypto state).
-        // The host-provided params carry the login type + token (m.login.token, org.matrix.login.jwt, ...).
+        // The host-provided params carry the login type + token (m.login.token, org.matrix.login.jwt, ...)
+        // and may carry the authoritative device_id. Respect it when present (so legacy sessions can be
+        // migrated to the correct device id); otherwise fall back to reusing the current session's device id
+        // to keep the same device (and its crypto state).
         val body = loginParams.toMutableMap().apply {
-            put("device_id", sessionParams.deviceId)
+            putIfAbsent("device_id", sessionParams.deviceId)
         }
 
         return executeRequest(null) {

@@ -18,6 +18,7 @@ package org.matrix.android.sdk.internal.session
 
 import android.content.Context
 import android.os.Build
+import com.squareup.moshi.Moshi
 import com.zhuinden.monarchy.Monarchy
 import dagger.Binds
 import dagger.Lazy
@@ -81,8 +82,6 @@ import org.matrix.android.sdk.internal.network.token.AccessTokenProvider
 import org.matrix.android.sdk.internal.network.token.DefaultTokenRefreshLoginTask
 import org.matrix.android.sdk.internal.network.token.HomeserverAccessTokenProvider
 import org.matrix.android.sdk.internal.network.token.TokenRefreshLoginTask
-import org.matrix.android.sdk.internal.util.time.Clock
-import com.squareup.moshi.Moshi
 import org.matrix.android.sdk.internal.session.call.CallEventProcessor
 import org.matrix.android.sdk.internal.session.download.DownloadProgressInterceptor
 import org.matrix.android.sdk.internal.session.events.DefaultEventService
@@ -106,6 +105,7 @@ import org.matrix.android.sdk.internal.session.user.accountdata.DefaultSessionAc
 import org.matrix.android.sdk.internal.session.widgets.DefaultWidgetURLFormatter
 import org.matrix.android.sdk.internal.session.workmanager.DefaultWorkManagerConfig
 import org.matrix.android.sdk.internal.session.workmanager.WorkManagerConfig
+import org.matrix.android.sdk.internal.util.time.Clock
 import retrofit2.Retrofit
 import java.io.File
 import javax.inject.Provider

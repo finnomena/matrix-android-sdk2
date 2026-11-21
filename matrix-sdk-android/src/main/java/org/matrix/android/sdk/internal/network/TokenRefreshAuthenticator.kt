@@ -61,6 +61,8 @@ internal class TokenRefreshAuthenticator(
     // Guarded by refreshLock.
     private var lastRefreshedToken: String? = null
     private var lastRefreshAtMs: Long = 0L
+    private var windowStartMs: Long = 0L
+    private var refreshesInWindow: Int = 0
 
     override fun authenticate(route: Route?, response: Response): Request? {
         val refresher = sessionTokenRefresher ?: return null
@@ -85,11 +87,24 @@ internal class TokenRefreshAuthenticator(
                         .build()
             }
 
-            // Circuit breaker: the token being rejected is the one we just minted, within the cool-down
-            // window. Refreshing again would only mint another token the server will reject -> give up.
+            val now = clock.epochMillis()
+
+            // Cool-down: the exact token we just minted is already being rejected, within the cool-down
+            // window. Refreshing again would only mint another token the server rejects -> give up fast.
             if (rejectedToken != null &&
                     rejectedToken == lastRefreshedToken &&
-                    clock.epochMillis() - lastRefreshAtMs < REFRESH_COOL_DOWN_MS) {
+                    now - lastRefreshAtMs < REFRESH_COOL_DOWN_MS) {
+                return@synchronized null
+            }
+
+            // Rate cap: bound the number of re-logins within a rolling window so a session that can never be
+            // recovered (re-login keeps producing tokens the server rejects) cannot drive an unbounded
+            // refresh/login storm over time. Legitimate, sparse token expiries never approach this cap.
+            if (now - windowStartMs > REFRESH_WINDOW_MS) {
+                windowStartMs = now
+                refreshesInWindow = 0
+            }
+            if (refreshesInWindow >= MAX_REFRESHES_PER_WINDOW) {
                 return@synchronized null
             }
 
@@ -105,6 +120,7 @@ internal class TokenRefreshAuthenticator(
                 }
             } ?: return@synchronized null
 
+            refreshesInWindow++
             lastRefreshedToken = newAccessToken
             lastRefreshAtMs = clock.epochMillis()
 
@@ -137,6 +153,8 @@ internal class TokenRefreshAuthenticator(
         private const val MAX_ATTEMPTS = 2
         private const val BEARER_PREFIX = "Bearer "
         private const val REFRESH_COOL_DOWN_MS = 10_000L
+        private const val REFRESH_WINDOW_MS = 60_000L
+        private const val MAX_REFRESHES_PER_WINDOW = 3
         private const val MAX_ERROR_BODY_BYTES = 10_000L
 
         // Token errors a silent re-login can actually recover. ORG_MATRIX_EXPIRED_ACCOUNT is intentionally
