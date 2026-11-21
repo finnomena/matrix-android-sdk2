@@ -17,6 +17,7 @@
 package org.matrix.android.sdk.internal.network.token
 
 import dagger.Lazy
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import org.matrix.android.sdk.api.auth.data.Credentials
 import org.matrix.android.sdk.internal.auth.AuthAPI
@@ -41,8 +42,12 @@ internal class DefaultTokenRefreshLoginTask @Inject constructor(
         val homeServerConnectionConfig = sessionParams.homeServerConnectionConfig
         val homeServerUrl = homeServerConnectionConfig.homeServerUriBase.toString()
 
+        // Use a dedicated Dispatcher so this re-login call does NOT share the per-host request slots of the
+        // authenticated client. Otherwise, a burst of concurrent 401s would occupy every slot while blocked
+        // in the Authenticator, leaving no slot for this /login call and deadlocking the client.
         val client = okHttpClient.get()
                 .newBuilder()
+                .dispatcher(Dispatcher())
                 .addSocketFactory(homeServerConnectionConfig)
                 .build()
 

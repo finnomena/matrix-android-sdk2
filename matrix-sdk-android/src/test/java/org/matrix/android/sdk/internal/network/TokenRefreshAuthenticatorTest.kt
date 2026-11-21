@@ -20,9 +20,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.amshove.kluent.shouldBeEqualTo
 import org.amshove.kluent.shouldBeNull
 import org.junit.Test
@@ -30,7 +32,9 @@ import org.matrix.android.sdk.api.auth.SessionTokenRefresher
 import org.matrix.android.sdk.api.auth.data.Credentials
 import org.matrix.android.sdk.api.auth.data.SessionParams
 import org.matrix.android.sdk.internal.auth.SessionParamsStore
+import org.matrix.android.sdk.internal.di.MoshiProvider
 import org.matrix.android.sdk.internal.network.token.TokenRefreshLoginTask
+import org.matrix.android.sdk.internal.util.time.Clock
 
 class TokenRefreshAuthenticatorTest {
 
@@ -38,12 +42,16 @@ class TokenRefreshAuthenticatorTest {
     private val sessionParamsStore = mockk<SessionParamsStore>(relaxed = true)
     private val tokenRefreshLoginTask = mockk<TokenRefreshLoginTask>()
     private val sessionTokenRefresher = mockk<SessionTokenRefresher>()
+    private var nowMs = 0L
+    private val clock = mockk<Clock> { every { epochMillis() } answers { nowMs } }
 
     private val authenticator = TokenRefreshAuthenticator(
             sessionId = aSessionId,
             sessionParamsStore = sessionParamsStore,
             tokenRefreshLoginTask = tokenRefreshLoginTask,
             sessionTokenRefresher = sessionTokenRefresher,
+            clock = clock,
+            moshi = MoshiProvider.providesMoshi(),
     )
 
     @Test
@@ -58,6 +66,16 @@ class TokenRefreshAuthenticatorTest {
         result?.header(HttpHeaders.Authorization) shouldBeEqualTo "Bearer new-token"
         coVerify { tokenRefreshLoginTask.execute(loginParams) }
         coVerify { sessionParamsStore.updateCredentials(match { it.accessToken == "new-token" }) }
+    }
+
+    @Test
+    fun `given a 401 that is not an unknown token error when authenticate then does not refresh`() {
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
+
+        val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token", errcode = "M_FORBIDDEN"))
+
+        result.shouldBeNull()
+        coVerify(exactly = 0) { sessionTokenRefresher.getLoginParams() }
     }
 
     @Test
@@ -103,12 +121,53 @@ class TokenRefreshAuthenticatorTest {
     }
 
     @Test
+    fun `given a freshly minted token is rejected again within the cool-down when authenticate then gives up without refreshing again`() {
+        val loginParams = mapOf<String, Any>("type" to "m.login.token", "token" to "a-login-token")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } returns credentials("new-token")
+
+        // First 401: refresh old-token -> new-token.
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
+        val first = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
+        first?.header(HttpHeaders.Authorization) shouldBeEqualTo "Bearer new-token"
+
+        // Second 401 rejects the token we just minted, still within the cool-down window.
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("new-token")
+        nowMs += 1_000
+        val second = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "new-token"))
+
+        second.shouldBeNull()
+        coVerify(exactly = 1) { sessionTokenRefresher.getLoginParams() }
+    }
+
+    @Test
+    fun `given a freshly minted token is rejected after the cool-down when authenticate then refreshes again`() {
+        val loginParams = mapOf<String, Any>("type" to "m.login.token", "token" to "a-login-token")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } returns credentials("new-token")
+
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
+        authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
+
+        // The minted token is rejected only after the cool-down elapsed -> a new refresh is allowed.
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("new-token")
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } returns credentials("newer-token")
+        nowMs += 11_000
+        val second = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "new-token"))
+
+        second?.header(HttpHeaders.Authorization) shouldBeEqualTo "Bearer newer-token"
+        coVerify(exactly = 2) { sessionTokenRefresher.getLoginParams() }
+    }
+
+    @Test
     fun `given no refresher is configured when authenticate then gives up`() {
         val authenticatorWithoutRefresher = TokenRefreshAuthenticator(
                 sessionId = aSessionId,
                 sessionParamsStore = sessionParamsStore,
                 tokenRefreshLoginTask = tokenRefreshLoginTask,
                 sessionTokenRefresher = null,
+                clock = clock,
+                moshi = MoshiProvider.providesMoshi(),
         )
 
         val result = authenticatorWithoutRefresher.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
@@ -128,17 +187,19 @@ class TokenRefreshAuthenticatorTest {
         every { credentials } returns credentials(accessToken)
     }
 
-    private fun unauthorizedResponse(token: String?, alreadyRetried: Boolean = false): Response {
+    private fun unauthorizedResponse(token: String?, alreadyRetried: Boolean = false, errcode: String = "M_UNKNOWN_TOKEN"): Response {
         val requestBuilder = Request.Builder().url("https://example.org/_matrix/client/v3/sync")
         if (token != null) {
             requestBuilder.header(HttpHeaders.Authorization, "Bearer $token")
         }
         val request = requestBuilder.build()
+        val errorBody = """{"errcode":"$errcode","error":"token error"}""".toResponseBody("application/json".toMediaType())
         return Response.Builder()
                 .request(request)
                 .protocol(Protocol.HTTP_1_1)
                 .code(401)
                 .message("Unauthorized")
+                .body(errorBody)
                 .apply {
                     if (alreadyRetried) {
                         // Simulate a 401 that already went through one refresh+retry cycle.
