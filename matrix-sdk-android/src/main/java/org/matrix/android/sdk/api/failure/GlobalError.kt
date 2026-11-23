@@ -21,6 +21,14 @@ import org.matrix.android.sdk.api.network.ssl.Fingerprint
 // This class will be sent to the bus
 sealed class GlobalError {
     data class InvalidToken(val softLogout: Boolean) : GlobalError()
+
+    /**
+     * A silent re-login (triggered by a 401) was itself rejected by the homeserver (`M_FORBIDDEN` on
+     * `/login`, e.g. an expired JWT). The host-supplied credentials cannot recover the session, so
+     * retrying re-login would not help: the host should force a real logout instead of showing the usual
+     * re-login prompt.
+     */
+    data class ForceLogout(val matrixError: MatrixError) : GlobalError()
     data class ConsentNotGivenError(val consentUri: String) : GlobalError()
     data class CertificateError(val fingerprint: Fingerprint) : GlobalError()
 

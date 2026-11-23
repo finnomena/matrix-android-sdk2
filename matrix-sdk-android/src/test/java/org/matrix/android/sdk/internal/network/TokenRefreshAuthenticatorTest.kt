@@ -31,6 +31,9 @@ import org.junit.Test
 import org.matrix.android.sdk.api.auth.SessionTokenRefresher
 import org.matrix.android.sdk.api.auth.data.Credentials
 import org.matrix.android.sdk.api.auth.data.SessionParams
+import org.matrix.android.sdk.api.failure.Failure
+import org.matrix.android.sdk.api.failure.GlobalError
+import org.matrix.android.sdk.api.failure.MatrixError
 import org.matrix.android.sdk.internal.auth.SessionParamsStore
 import org.matrix.android.sdk.internal.di.MoshiProvider
 import org.matrix.android.sdk.internal.network.token.TokenRefreshLoginTask
@@ -42,6 +45,7 @@ class TokenRefreshAuthenticatorTest {
     private val sessionParamsStore = mockk<SessionParamsStore>(relaxed = true)
     private val tokenRefreshLoginTask = mockk<TokenRefreshLoginTask>()
     private val sessionTokenRefresher = mockk<SessionTokenRefresher>()
+    private val globalErrorReceiver = mockk<GlobalErrorReceiver>(relaxed = true)
     private var nowMs = 0L
     private val clock = mockk<Clock> { every { epochMillis() } answers { nowMs } }
 
@@ -50,6 +54,7 @@ class TokenRefreshAuthenticatorTest {
             sessionParamsStore = sessionParamsStore,
             tokenRefreshLoginTask = tokenRefreshLoginTask,
             sessionTokenRefresher = sessionTokenRefresher,
+            globalErrorReceiver = globalErrorReceiver,
             clock = clock,
             moshi = MoshiProvider.providesMoshi(),
     )
@@ -141,6 +146,21 @@ class TokenRefreshAuthenticatorTest {
         val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
 
         result.shouldBeNull()
+        coVerify(exactly = 0) { globalErrorReceiver.handleGlobalError(any()) }
+    }
+
+    @Test
+    fun `given the re-login is rejected with M_FORBIDDEN when authenticate then notifies the host to force logout and gives up`() {
+        val loginParams = mapOf<String, Any>("type" to "org.matrix.login.jwt", "token" to "an-expired-jwt")
+        val forbidden = MatrixError(code = MatrixError.M_FORBIDDEN, message = "JWT validation failed: expired_token: The token is expired")
+        every { sessionParamsStore.get(aSessionId) } returns sessionParamsWithToken("old-token")
+        coEvery { sessionTokenRefresher.getLoginParams() } returns loginParams
+        coEvery { tokenRefreshLoginTask.execute(loginParams) } throws Failure.ServerError(forbidden, 403)
+
+        val result = authenticator.authenticate(route = null, response = unauthorizedResponse(token = "old-token"))
+
+        result.shouldBeNull()
+        coVerify(exactly = 1) { globalErrorReceiver.handleGlobalError(GlobalError.ForceLogout(forbidden)) }
     }
 
     @Test
@@ -215,6 +235,7 @@ class TokenRefreshAuthenticatorTest {
                 sessionParamsStore = sessionParamsStore,
                 tokenRefreshLoginTask = tokenRefreshLoginTask,
                 sessionTokenRefresher = null,
+                globalErrorReceiver = globalErrorReceiver,
                 clock = clock,
                 moshi = MoshiProvider.providesMoshi(),
         )

@@ -23,6 +23,8 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
 import org.matrix.android.sdk.api.auth.SessionTokenRefresher
+import org.matrix.android.sdk.api.failure.Failure
+import org.matrix.android.sdk.api.failure.GlobalError
 import org.matrix.android.sdk.api.failure.MatrixError
 import org.matrix.android.sdk.internal.auth.SessionParamsStore
 import org.matrix.android.sdk.internal.network.httpclient.addAuthenticationHeader
@@ -45,12 +47,16 @@ import timber.log.Timber
  *   [REFRESH_COOL_DOWN_MS], it stops refreshing and lets the usual
  *   [org.matrix.android.sdk.api.failure.GlobalError.InvalidToken] surface, so repeated incoming requests
  *   cannot drive an endless refresh/login storm when the homeserver keeps rejecting fresh tokens.
+ * - Force logout: if the `/login` call itself is rejected with `M_FORBIDDEN` (e.g. an expired JWT), the
+ *   host-supplied credentials cannot recover the session, so [GlobalError.ForceLogout] is raised instead
+ *   of silently giving up, letting the host log the user out rather than keep retrying.
  */
 internal class TokenRefreshAuthenticator(
         private val sessionId: String,
         private val sessionParamsStore: SessionParamsStore,
         private val tokenRefreshLoginTask: TokenRefreshLoginTask,
         private val sessionTokenRefresher: SessionTokenRefresher?,
+        private val globalErrorReceiver: GlobalErrorReceiver,
         private val clock: Clock,
         moshi: Moshi,
 ) : Authenticator {
@@ -116,6 +122,12 @@ internal class TokenRefreshAuthenticator(
                     credentials.accessToken
                 } catch (throwable: Throwable) {
                     Timber.e(throwable, "Failed to refresh the access token after a 401")
+                    // The homeserver rejected the re-login itself (not just the retried request): the
+                    // host-supplied credentials are unrecoverable, so ask the host to force a logout
+                    // instead of silently giving up and letting the original 401 keep retrying forever.
+                    if (throwable is Failure.ServerError && throwable.error.code == MatrixError.M_FORBIDDEN) {
+                        globalErrorReceiver.handleGlobalError(GlobalError.ForceLogout(throwable.error))
+                    }
                     null
                 }
             } ?: return@synchronized null
