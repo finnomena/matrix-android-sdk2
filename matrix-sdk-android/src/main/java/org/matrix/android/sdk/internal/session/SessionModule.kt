@@ -274,6 +274,7 @@ internal abstract class SessionModule {
                 sessionParamsStore: SessionParamsStore,
                 tokenRefreshLoginTask: TokenRefreshLoginTask,
                 matrixConfiguration: MatrixConfiguration,
+                globalErrorReceiver: GlobalErrorReceiver,
                 clock: Clock,
                 moshi: Moshi,
         ): TokenRefreshAuthenticator {
@@ -282,6 +283,7 @@ internal abstract class SessionModule {
                     sessionParamsStore = sessionParamsStore,
                     tokenRefreshLoginTask = tokenRefreshLoginTask,
                     sessionTokenRefresher = matrixConfiguration.sessionTokenRefresher,
+                    globalErrorReceiver = globalErrorReceiver,
                     clock = clock,
                     moshi = moshi,
             )
