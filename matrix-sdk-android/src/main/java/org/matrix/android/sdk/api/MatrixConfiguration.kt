@@ -18,6 +18,7 @@ package org.matrix.android.sdk.api
 
 import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
+import org.matrix.android.sdk.api.auth.SessionTokenRefresher
 import org.matrix.android.sdk.api.crypto.MXCryptoConfig
 import org.matrix.android.sdk.api.metrics.CryptoMetricPlugin
 import org.matrix.android.sdk.api.metrics.MetricPlugin
@@ -89,4 +90,10 @@ data class MatrixConfiguration(
          * CustomEventTypesProvider to provide custom event types to the sdk which should be processed with internal events.
          */
         val customEventTypesProvider: CustomEventTypesProvider? = null,
+        /**
+         * Optional refresher used to silently re-login and refresh the homeserver access token when a request
+         * fails with HTTP 401. When null (default), the SDK keeps its previous behaviour and only surfaces
+         * [org.matrix.android.sdk.api.failure.GlobalError.InvalidToken] to the host.
+         */
+        val sessionTokenRefresher: SessionTokenRefresher? = null,
 )
